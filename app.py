@@ -825,6 +825,153 @@ async def compose_endpoint(
     return Response(content=merged, media_type="image/svg+xml")
 
 
+@app.post("/selective")
+async def selective_endpoint(
+        request: Request,
+        file: UploadFile | None = File(default=None),
+        delete_indices: str = Form("[]"),
+        bridge_indices: str = Form("[]"),
+        dark_threshold: float = Form(110.0),
+        scale: float = Form(2.0),
+        bridge_width: float = Form(2.0)):
+    """
+    Ada bazında seçici silme + köprüleme.
+    delete_indices / bridge_indices: JSON dizisi (analyze sırasıyla eşleşir).
+    Geri kalan adalar olduğu gibi bırakılır.
+    """
+    svg = await read_svg(request, file)
+    try:
+        del_set = set(json.loads(delete_indices))
+        br_set = set(json.loads(bridge_indices))
+    except Exception:
+        raise HTTPException(400, "delete_indices / bridge_indices geçerli JSON dizisi olmalı")
+
+    try:
+        header, W, H = extract_svg_header(svg)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    # ── Ada tespiti (analyze ile aynı sıra) ──
+    gray = render_to_gray(svg, W, H, scale)
+    black = gray < dark_threshold
+    labels, n = ndimage.label(black, structure=np.ones((3, 3)))
+    if n == 0:
+        raise HTTPException(422, "Render'da koyu piksel yok.")
+    sizes = ndimage.sum(black, labels, range(1, n + 1))
+    main_label = int(np.argmax(sizes)) + 1
+    main_mask = labels == main_label
+    main_dil = ndimage.binary_dilation(main_mask, iterations=max(1, int(scale)))
+    island_mask = black & ~main_mask
+
+    dark_items = []
+    g_blocks = re.findall(r'<g\b[^>]*transform="[^"]*"[^>]*>[\s\S]*?</g>', svg, re.IGNORECASE)
+    covered_paths = set()
+    for gblock in g_blocks:
+        inner_path = re.search(r'<path\b[^>]*?/>', gblock, re.IGNORECASE)
+        if not inner_path:
+            continue
+        ptag = inner_path.group(0)
+        fm = re.search(r'fill="([^"]+)"', ptag)
+        lum = hex_luminance(fm.group(1) if fm else None)
+        if lum is not None and lum <= dark_threshold:
+            dark_items.append((gblock, gblock))
+            covered_paths.add(ptag)
+    for ptag in re.findall(r"<path\b[^>]*?/>", svg, re.IGNORECASE):
+        if ptag in covered_paths:
+            continue
+        fm = re.search(r'fill="([^"]+)"', ptag)
+        lum = hex_luminance(fm.group(1) if fm else None)
+        if lum is not None and lum <= dark_threshold:
+            dark_items.append((ptag, ptag))
+
+    # Adaları bul (y0'a göre sıralı → analyze ile aynı sıra)
+    island_list = []
+    for remove_str, render_frag in dark_items:
+        single = f'{header}{render_frag}</svg>'
+        try:
+            pmask = render_to_gray(single, W, H, scale) < dark_threshold
+        except Exception:
+            continue
+        if (pmask & main_dil).any():
+            continue
+        if not (pmask & island_mask).any():
+            continue
+        ys, _ = np.where(pmask)
+        island_list.append({"remove_str": remove_str, "render_frag": render_frag,
+                            "pmask": pmask, "y0": int(ys.min())})
+    island_list.sort(key=lambda r: r["y0"])
+
+    # ── Adım 1: Sil ──
+    result = svg
+    for i, isl in enumerate(island_list):
+        if i in del_set:
+            result = result.replace(isl["remove_str"], "", 1)
+
+    # ── Adım 2: Seçili adaları köprüle ──
+    br_valid = [i for i in sorted(br_set) if i < len(island_list) and i not in del_set]
+    if br_valid:
+        gray2 = render_to_gray(result, W, H, scale)
+        black2 = gray2 < dark_threshold
+        labels2, n2 = ndimage.label(black2, structure=np.ones((3, 3)))
+        sizes2 = ndimage.sum(black2, labels2, range(1, n2 + 1)) if n2 > 0 else []
+        if n2 > 0:
+            main_label2 = int(np.argmax(sizes2)) + 1
+            rest = (labels2 == main_label2).copy()
+            svg_bridges = []
+            for i in br_valid:
+                orig_mask = island_list[i]["pmask"]
+                overlap = labels2[orig_mask]
+                overlap = overlap[overlap > 0]
+                if len(overlap) == 0:
+                    continue
+                lbl = int(np.bincount(overlap).argmax())
+                if lbl == 0 or lbl == main_label2:
+                    continue
+                isl_mask2 = labels2 == lbl
+                edt, edt_inds = ndimage.distance_transform_edt(~rest, return_indices=True)
+                axis_cands = _axis_bridge_candidates(isl_mask2, rest)
+                edge = isl_mask2 & ~ndimage.binary_erosion(isl_mask2)
+                if not edge.any():
+                    edge = isl_mask2
+                ey, ex = np.where(edge)
+                d_vals = edt[ey, ex]
+                ord_ = np.argsort(d_vals)
+                diag_cands = []
+                for idx in ord_[:min(300, len(ord_))]:
+                    px, py = int(ex[idx]), int(ey[idx])
+                    tx, ty = int(edt_inds[1][py, px]), int(edt_inds[0][py, px])
+                    diag_cands.append((int(d_vals[idx]), px, py, tx, ty, 'D'))
+                pool = axis_cands if axis_cands else diag_cands
+                if not pool:
+                    continue
+                # Ada büyüklüğüne göre köprü sayısı
+                ys2, xs2 = np.where(isl_mask2)
+                span_svg = max(xs2.max() - xs2.min(), ys2.max() - ys2.min()) / scale
+                n_br = int(np.clip(round(span_svg / 150.0), 1, 6))
+                min_gap_px = max(span_svg * scale / (n_br + 1), 15)
+                chosen = []
+                for src in [pool, diag_cands if pool is axis_cands else []]:
+                    for c in src:
+                        px2, py2 = c[1], c[2]
+                        if all((px2 - cx) ** 2 + (py2 - cy) ** 2 >= min_gap_px ** 2 for cx, cy, *_ in chosen):
+                            chosen.append(c)
+                        if len(chosen) >= n_br:
+                            break
+                    if len(chosen) >= n_br:
+                        break
+                for c in chosen:
+                    _, x1c, y1c, x2c, y2c, d = c
+                    svg_bridges.append(_bridge_svg_elem(x1c, y1c, x2c, y2c, d, bridge_width, "#000000", scale, 10.0))
+                    _stamp_line(rest, x1c, y1c, x2c, y2c)
+                rest = rest | isl_mask2
+            if svg_bridges:
+                i_close = result.rfind("</svg>")
+                result = result[:i_close] + "".join(svg_bridges) + result[i_close:]
+
+    return Response(content=result, media_type="image/svg+xml",
+                    headers={"X-Processed": str(len(del_set) + len(br_set))})
+
+
 @app.post("/compose_multi")
 async def compose_multi(
         file: UploadFile = File(...),

@@ -136,10 +136,24 @@
     background-size:20px 20px;padding:16px;display:flex;align-items:center;justify-content:center;min-height:240px}
   .canvas svg{width:100%;height:auto;max-height:500px;display:block}
   .markers{position:absolute;inset:16px;pointer-events:none}
-  .marker{position:absolute;border:2px solid var(--danger);border-radius:50%;width:28px;height:28px;
-    transform:translate(-50%,-50%);box-shadow:0 0 0 3px rgba(255,77,77,.25);display:flex;align-items:center;justify-content:center}
-  .marker span{position:absolute;top:-8px;right:-8px;background:var(--danger);color:#fff;font-size:9px;font-weight:600;
-    width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+  /* ada işaretçileri */
+  .imark{
+    position:absolute;transform:translate(-50%,-50%);
+    border-radius:50%;width:28px;height:28px;border:2px solid;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    line-height:1;box-shadow:0 0 0 3px rgba(0,0,0,.3);
+    transition:transform .1s,box-shadow .1s;z-index:5;
+  }
+  .imark:hover{transform:translate(-50%,-50%) scale(1.25);box-shadow:0 0 0 5px rgba(0,0,0,.4);}
+  .imark[data-s="delete"]{background:var(--danger);border-color:#ff8080;color:#fff;}
+  .imark[data-s="bridge"]{background:var(--accent);border-color:#ffaa66;color:#1a0f04;}
+  .imark[data-s="keep"]{background:var(--ok);border-color:#66ffb3;color:#05200f;}
+  .imark .mnum{font-size:9px;font-weight:700;line-height:1}
+  .imark .mico{font-size:9px;line-height:1}
+  /* canvas zoom */
+  .canvas-zoom{overflow:hidden;cursor:zoom-in}
+  .canvas-inner{position:relative;width:100%;line-height:0;transition:transform .06s linear}
 
   .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
   .stat{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:12px 16px;min-width:110px}
@@ -208,35 +222,40 @@
     </div>
     <div class="sb-sec-body open">
       <div class="field">
-        <label>işlem</label>
-        <div class="seg">
-          <button class="seg-btn active" data-mode="clean">Sil</button>
-          <button class="seg-btn" data-mode="bridge">Köprüle</button>
-        </div>
-      </div>
-      <div class="field">
         <label>koyu eşiği · <span class="val" id="dtVal">110</span></label>
         <input type="range" id="dark" min="40" max="200" value="110">
       </div>
       <div class="field">
+        <label>köprü kalınlığı · <span class="val" id="bwVal">2</span></label>
+        <input type="range" id="bw" min="0.5" max="12" value="2" step="0.5">
+      </div>
+      <div class="field">
         <label>render ölçek</label>
         <input type="number" id="scale" value="2" min="1" max="4" step="0.5">
-      </div>
-      <div class="field" id="keepField">
-        <label>koru &gt; pt² (opsiyonel)</label>
-        <input type="number" id="keep" placeholder="boş = yok" min="0">
-      </div>
-      <div class="field" id="bwField" style="display:none">
-        <label>köprü kalınlığı</label>
-        <input type="number" id="bw" value="2" min="0.5" max="12" step="0.5">
       </div>
       <div class="field">
         <label>PNG ölçek</label>
         <input type="number" id="pngScale" value="3" min="1" max="6" step="0.5">
       </div>
       <label class="chk"><input type="checkbox" id="trans" checked> şeffaf zemin</label>
-      <button class="btn-go" id="go" disabled>Temizle</button>
-      <div class="btn-row">
+
+      <!-- Analiz Et -->
+      <button class="btn-go" id="go" disabled>Analiz Et</button>
+
+      <!-- Ada seçici (analiz sonrası görünür) -->
+      <div id="islandCtrl" style="display:none;margin-top:10px">
+        <p style="font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">
+          İşaretçiye tıkla: <span style="color:var(--danger)">✕ Sil</span> · <span style="color:var(--accent)">⟷ Köprüle</span> · <span style="color:var(--ok)">✓ Tut</span>
+        </p>
+        <div class="btn-row" style="margin-bottom:8px">
+          <button class="btn-sm" id="allDel">Hepsini Sil</button>
+          <button class="btn-sm" id="allBr" style="color:var(--accent);border-color:var(--accent)">Hepsini Köprüle</button>
+          <button class="btn-sm" id="allKeep" style="color:var(--ok);border-color:var(--ok)">Hepsini Tut</button>
+        </div>
+        <button class="btn-go" id="applyBtn">Uygula Seçimi</button>
+      </div>
+
+      <div class="btn-row" style="margin-top:8px">
         <button class="btn-sm" id="dl" disabled>↓ SVG</button>
         <button class="btn-sm" id="png" disabled>↓ PNG</button>
         <button class="btn-save" id="cleanKaydet" disabled>↑ Kaydet</button>
@@ -385,12 +404,21 @@
     <div class="stats" id="stats"></div>
     <div class="compare">
       <div class="view before">
-        <div class="head"><span>öncesi</span> <b id="beforeTag">— ada</b></div>
-        <div class="canvas"><div id="beforeSvg"></div><div class="markers" id="markers"></div></div>
+        <div class="head"><span>öncesi · <small style="opacity:.6">hover=zoom · işaretçiye tıkla</small></span> <b id="beforeTag">— ada</b></div>
+        <div class="canvas canvas-zoom" id="beforeCanvas">
+          <div class="canvas-inner" id="beforeInner">
+            <div id="beforeSvg"></div>
+            <div id="markers" style="position:absolute;inset:0;pointer-events:none"></div>
+          </div>
+        </div>
       </div>
       <div class="view after">
-        <div class="head"><span>sonrası</span> <b id="afterTag">temiz</b></div>
-        <div class="canvas"><div id="afterSvg"></div></div>
+        <div class="head"><span>sonrası · <small style="opacity:.6">hover=zoom</small></span> <b id="afterTag">temiz</b></div>
+        <div class="canvas canvas-zoom" id="afterCanvas">
+          <div class="canvas-inner" id="afterInner">
+            <div id="afterSvg"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="islands" id="islandsBox" style="display:none">
@@ -447,8 +475,10 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let svgText=null,fileName="design.svg",cleanedBlobUrl=null,cleanedText=null,mode="clean";
+let svgText=null,fileName="design.svg",cleanedBlobUrl=null,cleanedText=null;
 let lastSvg=null;
+let islandStates=[];       // 'delete'|'bridge'|'keep' — analiz sonrası dolu
+let analyzedReport=null;   // son analyze raporu
 
 /* ── accordion ── */
 function toggleSec(name){
@@ -476,7 +506,6 @@ drop.addEventListener('click',()=>fileInput.click());
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('drag')}));
 drop.addEventListener('drop',ev=>{if(ev.dataTransfer.files[0])loadFile(ev.dataTransfer.files[0])});
 fileInput.addEventListener('change',()=>{if(fileInput.files[0])loadFile(fileInput.files[0])});
-$('dark').addEventListener('input',()=>$('dtVal').textContent=$('dark').value);
 
 function loadFile(f){
   if(!/svg/i.test(f.type)&&!/\.svg$/i.test(f.name)){showErr('Lütfen bir .svg dosyası seçin.');return;}
@@ -490,12 +519,13 @@ function initAllTools(text,name){
   svgText=text; fileName=name||'design.svg';
   $('fname').textContent=fileName;
 
-  // Ada Temizle
+  // Ada Temizle — reset
   $('go').disabled=false; hideErr();
   renderSvg('beforeSvg',text);
   $('markers').innerHTML=''; $('afterSvg').innerHTML='';
   $('dl').disabled=true; $('png').disabled=true; $('cleanKaydet').disabled=true;
-  cleanedText=null;
+  cleanedText=null; analyzedReport=null; islandStates=[];
+  $('islandCtrl').style.display='none';
   $('main-clean').style.display='';
   $('stats').innerHTML=''; $('islandsBox').style.display='none'; $('beforeTag').textContent='— ada';
   $('empty-state').style.display='none';
@@ -530,82 +560,141 @@ function getViewBox(text){
   return{x:0,y:0,w:wm?+wm[1]:1000,h:hm?+hm[1]:1000};
 }
 function qs(){
-  let s=`?dark_threshold=${$('dark').value}&scale=${$('scale').value}`;
-  if(mode==='bridge'){s+=`&bridge_width=${$('bw').value}`;}
-  else if($('keep').value){s+=`&keep_larger_than=${$('keep').value}`;}
-  return s;
+  return `?dark_threshold=${$('dark').value}&scale=${$('scale').value}`;
 }
+$('dark').addEventListener('input',()=>$('dtVal').textContent=$('dark').value);
+$('bw').addEventListener('input',()=>$('bwVal').textContent=$('bw').value);
 
-/* ── mod seçimi ── */
-document.querySelectorAll('.seg-btn[data-mode]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('.seg-btn[data-mode]').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active'); mode=b.dataset.mode;
-  $('keepField').style.display=mode==='clean'?'':'none';
-  $('bwField').style.display=mode==='bridge'?'':'none';
-  $('go').textContent=mode==='bridge'?'Köprüle':'Temizle';
-}));
+/* ── canvas hover zoom ── */
+function initCanvasZoom(canvasEl,innerId){
+  const inner=$(innerId)||canvasEl.querySelector('.canvas-inner');if(!inner)return;
+  canvasEl.addEventListener('mousemove',e=>{
+    const r=canvasEl.getBoundingClientRect();
+    const xp=((e.clientX-r.left)/r.width*100).toFixed(2);
+    const yp=((e.clientY-r.top)/r.height*100).toFixed(2);
+    inner.style.transformOrigin=`${xp}% ${yp}%`;
+    inner.style.transform='scale(2.8)';
+  });
+  canvasEl.addEventListener('mouseleave',()=>{
+    inner.style.transition='transform 0.18s ease';
+    inner.style.transform='';
+    setTimeout(()=>{inner.style.transition='';},220);
+  });
+}
+initCanvasZoom($('beforeCanvas'),'beforeInner');
+initCanvasZoom($('afterCanvas'),'afterInner');
 
-/* ── ada temizle ── */
+/* ── ada analiz ── */
 $('go').addEventListener('click',async()=>{
   if(!svgText)return;
-  const go=$('go');go.disabled=true;go.innerHTML='<span class="spin"></span>İşleniyor';
-  hideErr();
-  showMainSec('clean');
+  const go=$('go');go.disabled=true;go.innerHTML='<span class="spin"></span>Analiz';
+  hideErr(); showMainSec('clean');
   try{
-    const fd1=new FormData();fd1.append('file',new Blob([svgText],{type:'image/svg+xml'}),fileName);
-    const aRes=await fetch('/analyze'+qs(),{method:'POST',body:fd1});
-    if(!aRes.ok)throw new Error((await aRes.json()).detail||'analiz hatası');
-    const rep=await aRes.json();
-    const endpoint=mode==='bridge'?'/bridge':'/clean';
-    const fd2=new FormData();fd2.append('file',new Blob([svgText],{type:'image/svg+xml'}),fileName);
-    const cRes=await fetch(endpoint+qs(),{method:'POST',body:fd2});
-    if(!cRes.ok)throw new Error((await cRes.json()).detail||'işlem hatası');
-    const cleaned=await cRes.text();
+    const fd=new FormData();fd.append('file',new Blob([svgText],{type:'image/svg+xml'}),fileName);
+    const res=await fetch('/analyze'+qs(),{method:'POST',body:fd});
+    if(!res.ok)throw new Error((await res.json()).detail||'analiz hatası');
+    const rep=await res.json();
+    analyzedReport=rep;
+    islandStates=rep.removed.map(()=>'delete'); // varsayılan: hepsini sil
+    showStats(rep); drawMarkers(rep);
+    $('islandCtrl').style.display=rep.removed.length?'':'none';
+    $('beforeTag').textContent=rep.removed_count+' ada';
+  }catch(e){showErr(e.message);}
+  finally{go.disabled=false;go.textContent='Analiz Et';}
+});
+
+/* ── seçimi toplu değiştir ── */
+$('allDel').addEventListener('click',()=>{islandStates=islandStates.map(()=>'delete');refreshMarkers();});
+$('allBr').addEventListener('click',()=>{islandStates=islandStates.map(()=>'bridge');refreshMarkers();});
+$('allKeep').addEventListener('click',()=>{islandStates=islandStates.map(()=>'keep');refreshMarkers();});
+
+/* ── uygula seçimi ── */
+$('applyBtn').addEventListener('click',async()=>{
+  if(!svgText||!analyzedReport)return;
+  const btn=$('applyBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>İşleniyor';
+  hideErr();
+  try{
+    const delIdx=islandStates.map((s,i)=>s==='delete'?i:-1).filter(i=>i>=0);
+    const brIdx=islandStates.map((s,i)=>s==='bridge'?i:-1).filter(i=>i>=0);
+    let cleaned;
+    if(delIdx.length===0&&brIdx.length===0){
+      cleaned=svgText;
+    }else{
+      const fd=new FormData();
+      fd.append('file',new Blob([svgText],{type:'image/svg+xml'}),fileName);
+      fd.append('delete_indices',JSON.stringify(delIdx));
+      fd.append('bridge_indices',JSON.stringify(brIdx));
+      fd.append('dark_threshold',$('dark').value);
+      fd.append('scale',$('scale').value);
+      fd.append('bridge_width',$('bw').value);
+      const res=await fetch('/selective',{method:'POST',body:fd});
+      if(!res.ok)throw new Error((await res.json()).detail||'işlem hatası');
+      cleaned=await res.text();
+    }
     renderSvg('afterSvg',cleaned);
     cleanedText=cleaned; lastSvg=cleaned;
     if(cleanedBlobUrl)URL.revokeObjectURL(cleanedBlobUrl);
     cleanedBlobUrl=URL.createObjectURL(new Blob([cleaned],{type:'image/svg+xml'}));
     $('dl').disabled=false;$('png').disabled=false;$('cleanKaydet').disabled=false;
-    showStats(rep);drawMarkers(rep);
+    $('afterTag').textContent='uygulandı';
   }catch(e){showErr(e.message);}
-  finally{go.disabled=false;go.textContent=mode==='bridge'?'Köprüle':'Temizle';}
+  finally{btn.disabled=false;btn.textContent='Uygula Seçimi';}
 });
 
+/* ── istatistik ── */
 function showStats(rep){
-  const isB=mode==='bridge';
   $('stats').innerHTML=`
     <div class="stat"><div class="n">${rep.components_before}</div><div class="l">başlangıç parça</div></div>
-    <div class="stat ${isB?'accentstat':'danger'}"><div class="n">${rep.removed_count}</div><div class="l">${isB?'eklenen köprü':'silinen ada'}</div></div>
-    <div class="stat ok"><div class="n">${rep.components_after}</div><div class="l">kalan parça</div></div>`;
-  $('beforeTag').textContent=rep.removed_count+(isB?' köprü':' ada');
-  $('islandsTitle').textContent=isB?'köprülenen adalar':'silinen yüzen adalar';
+    <div class="stat danger"><div class="n">${rep.removed_count}</div><div class="l">bulunan ada</div></div>
+    <div class="stat ok"><div class="n">${rep.components_after||'—'}</div><div class="l">kalan parça</div></div>`;
   if(rep.removed.length){
     $('islandsBox').style.display='block';
+    $('islandsTitle').textContent='bulunan yüzen adalar';
     $('ilist').innerHTML=rep.removed.map((r,i)=>
-      `<div class="icard"><b>#${i+1}</b> · ${r.area_pt2} pt²<br>x:${r.x0}–${r.x1} · y:${r.y0}–${r.y1}<br>${r.w}×${r.h}</div>`).join('');
+      `<div class="icard"><b>#${i+1}</b> · ${r.area_pt2} pt²<br>${r.w}×${r.h}</div>`).join('');
   }else $('islandsBox').style.display='none';
 }
 
+/* ── interaktif işaretçiler ── */
+const S_CYCLE=['delete','bridge','keep'];
+const S_ICO={delete:'✕',bridge:'⟷',keep:'✓'};
+
 function drawMarkers(rep){
-  const vb=getViewBox(svgText),layer=$('markers');layer.innerHTML='';
-  const svg=$('beforeSvg').querySelector('svg');if(!svg)return;
+  const vb=getViewBox(svgText);
+  const layer=$('markers');layer.innerHTML='';
+  layer.style.pointerEvents='auto';
   rep.removed.forEach((r,i)=>{
-    const cx=((r.x0+r.x1)/2-vb.x)/vb.w*100,cy=((r.y0+r.y1)/2-vb.y)/vb.h*100;
-    const m=document.createElement('div');m.className='marker';
-    m.style.left=cx+'%';m.style.top=cy+'%';m.innerHTML=`<span>${i+1}</span>`;
+    const cx=((r.x0+r.x1)/2-vb.x)/vb.w*100;
+    const cy=((r.y0+r.y1)/2-vb.y)/vb.h*100;
+    const m=document.createElement('button');
+    m.className='imark';
+    m.style.left=cx+'%'; m.style.top=cy+'%';
+    m.dataset.idx=i; m.dataset.s=islandStates[i]||'delete';
+    m.innerHTML=`<span class="mnum">${i+1}</span><span class="mico">${S_ICO[m.dataset.s]}</span>`;
+    m.title=`Ada #${i+1} · ${r.area_pt2}pt² · tıkla: sil→köprüle→tut`;
+    m.addEventListener('click',e=>{
+      e.stopPropagation();
+      const cur=S_CYCLE.indexOf(islandStates[i]);
+      islandStates[i]=S_CYCLE[(cur+1)%3];
+      m.dataset.s=islandStates[i];
+      m.querySelector('.mico').textContent=S_ICO[islandStates[i]];
+    });
     layer.appendChild(m);
   });
-  requestAnimationFrame(()=>{
-    const r=svg.getBoundingClientRect();
-    layer.style.height=r.height+'px';layer.style.width=r.width+'px';
-    layer.style.left='50%';layer.style.transform='translateX(-50%)';layer.style.top='16px';
+}
+
+function refreshMarkers(){
+  $('markers').querySelectorAll('.imark').forEach(m=>{
+    const i=parseInt(m.dataset.idx);
+    m.dataset.s=islandStates[i];
+    m.querySelector('.mico').textContent=S_ICO[islandStates[i]];
   });
 }
 
 $('dl').addEventListener('click',()=>{
   if(!cleanedBlobUrl)return;
   const a=document.createElement('a');a.href=cleanedBlobUrl;
-  a.download=fileName.replace(/\.svg$/i,'')+(mode==='bridge'?'_koprulu':'_temiz')+'.svg';a.click();
+  a.download=fileName.replace(/\.svg$/i,'')+'_islenmis.svg';a.click();
 });
 $('png').addEventListener('click',async()=>{
   if(!cleanedText)return;
@@ -616,7 +705,7 @@ $('png').addEventListener('click',async()=>{
     const res=await fetch(`/svg2png?scale=${$('pngScale').value}&bg=${bg}&trim=true`,{method:'POST',body:fd});
     if(!res.ok)throw new Error((await res.json()).detail||'PNG hatası');
     const url=URL.createObjectURL(await res.blob());
-    const a=document.createElement('a');a.href=url;a.download=fileName.replace(/\.svg$/i,'')+(mode==='bridge'?'_koprulu':'_temiz')+'.png';a.click();
+    const a=document.createElement('a');a.href=url;a.download=fileName.replace(/\.svg$/i,'')+'_islenmis.png';a.click();
     URL.revokeObjectURL(url);
   }catch(e){showErr(e.message);}
   finally{btn.disabled=false;btn.textContent=old;}
