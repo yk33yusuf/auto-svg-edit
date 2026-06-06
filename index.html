@@ -961,7 +961,7 @@ $('kaydet').addEventListener('click', async () => {
   window.parent.postMessage({ type: 'svg-save', svg }, '*');
 });
 
-/* ---------- ?svg= URL param ile otomatik yükle ---------- */
+/* ---------- ?svg= URL param ile otomatik yükle (tüm sekmeler) ---------- */
 (async function() {
   const u = new URLSearchParams(location.search).get('svg');
   if (!u) return;
@@ -969,10 +969,13 @@ $('kaydet').addEventListener('click', async () => {
     const res = await fetch('/proxy?url=' + encodeURIComponent(u));
     if (!res.ok) throw new Error('proxy ' + res.status);
     const text = await res.text();
+    const name = decodeURIComponent(u.split('/').pop() || '').split('?')[0] || 'design.svg';
+    const fn = /\.svg$/i.test(name) ? name : 'design.svg';
+
+    // Ada Temizle sekmesi
     svgText = text;
-    fileName = decodeURIComponent(u.split('/').pop() || '').split('?')[0] || 'design.svg';
-    if (!/\.svg$/i.test(fileName)) fileName = 'design.svg';
-    $('fname').textContent = fileName;
+    fileName = fn;
+    $('fname').textContent = fn;
     $('go').disabled = false;
     renderSvg('beforeSvg', text);
     $('markers').innerHTML = '';
@@ -983,6 +986,29 @@ $('kaydet').addEventListener('click', async () => {
     $('islandsBox').style.display = 'none';
     $('stats').innerHTML = '';
     $('beforeTag').textContent = '— ada';
+
+    // Birleştir sekmesi
+    cBaseText = text;
+    cFileName = fn;
+    $('cfname').textContent = fn;
+    const cel = $('cbase'); cel.innerHTML = text;
+    const csvg = cel.querySelector('svg');
+    if (csvg) { csvg.removeAttribute('width'); csvg.removeAttribute('height'); csvg.style.width='100%'; csvg.style.height='auto'; csvg.style.maxHeight='none'; csvg.style.display='block'; }
+    $('cstage').style.display = 'block';
+    $('clayersbar').style.display = 'flex';
+    $('cdlsvg').disabled = false; $('cdlpng').disabled = false;
+    if (layers.length === 0) addLayer('YAZı');
+    else { renderOverlays(); renderChips(); }
+
+    // Elle Köprü sekmesi
+    mbBase = text;
+    mbName = fn;
+    mbBridges = []; mbPendingA = null;
+    $('mfname').textContent = fn;
+    $('mstage').style.display = 'block';
+    ['mdlsvg','mdlpng','mclear','mundo'].forEach(id => $(id).disabled = false);
+    mbRender(); mbAnalyze();
+
   } catch(e) {
     console.error('SVG param yüklenemedi:', e.message);
   }
