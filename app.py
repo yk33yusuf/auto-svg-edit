@@ -240,15 +240,39 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
     """
     header, W, H = extract_svg_header(content)
 
-    # 1) Renk filtresi
-    path_tags = re.findall(r"<path\b[^>]*?/>", content, re.IGNORECASE)
-    dark_paths = []
-    for tag in path_tags:
-        fm = re.search(r'fill="([^"]+)"', tag)
+    # 1) Renk filtresi — hem bare <path/> hem de <g transform="..."><path/></g> kalıpları
+    # Her item: (remove_str, render_fragment)
+    #   remove_str    → cleaned.replace() ile SVG'den kaldırılacak metin
+    #   render_fragment → pixel konumunu doğru bulmak için header+…+</svg> içine konacak parça
+    dark_items = []
+
+    # 1a) <g transform="...">...<path />...</g> — compose ile eklenen yazılar vb.
+    g_blocks = re.findall(
+        r'<g\b[^>]*transform="[^"]*"[^>]*>[\s\S]*?</g>',
+        content, re.IGNORECASE
+    )
+    covered_paths = set()
+    for gblock in g_blocks:
+        inner_path = re.search(r'<path\b[^>]*?/>', gblock, re.IGNORECASE)
+        if not inner_path:
+            continue
+        ptag = inner_path.group(0)
+        fm = re.search(r'fill="([^"]+)"', ptag)
         lum = hex_luminance(fm.group(1) if fm else None)
         if lum is not None and lum <= dark_threshold:
-            dark_paths.append(tag)
-    if not dark_paths:
+            dark_items.append((gblock, gblock))
+            covered_paths.add(ptag)
+
+    # 1b) Duzce <path /> — g blogu icinde olmayan
+    for ptag in re.findall(r"<path\b[^>]*?/>", content, re.IGNORECASE):
+        if ptag in covered_paths:
+            continue
+        fm = re.search(r'fill="([^"]+)"', ptag)
+        lum = hex_luminance(fm.group(1) if fm else None)
+        if lum is not None and lum <= dark_threshold:
+            dark_items.append((ptag, ptag))
+
+    if not dark_items:
         raise ValueError("Koyu (siyah) path bulunamadi. dark_threshold'u yukseltin.")
 
     # 2) Tam render + 3) baglantili bilesen
@@ -263,14 +287,11 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
     main_dil = ndimage.binary_dilation(main_mask, iterations=max(1, int(scale)))
     island_mask = black & ~main_mask
 
-    # 4) Path eslesme + silme
+    # 4) Esleme + silme
     removed = []
     cleaned = content
-    for tag in dark_paths:
-        dm = re.search(r'd="([^"]+)"', tag)
-        if not dm:
-            continue
-        single = f'{header}<path d="{dm.group(1)}" fill="#000000" /></svg>'
+    for remove_str, render_frag in dark_items:
+        single = f'{header}{render_frag}</svg>'
         try:
             pmask = render_to_gray(single, W, H, scale) < dark_threshold
         except Exception:
@@ -284,7 +305,7 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
         if keep_larger_than and area_pt > keep_larger_than:
             continue
         if do_remove:
-            cleaned = cleaned.replace(tag, "", 1)
+            cleaned = cleaned.replace(remove_str, "", 1)
         removed.append({
             "x0": round(xs.min() / scale, 1), "y0": round(ys.min() / scale, 1),
             "x1": round(xs.max() / scale, 1), "y1": round(ys.max() / scale, 1),
