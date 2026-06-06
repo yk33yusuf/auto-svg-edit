@@ -31,6 +31,7 @@ import re
 
 import numpy as np
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from PIL import Image
 from scipy import ndimage
@@ -40,6 +41,12 @@ from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
 
 app = FastAPI(title="auto-svg-clean", version="1.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 _FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 STENCIL_FONTS = {
