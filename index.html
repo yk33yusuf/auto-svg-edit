@@ -157,6 +157,7 @@
       <span class="sub">floating island remover</span>
     </div>
     <div class="status"><span class="dot"></span> servis aktif</div>
+    <button class="btn-go" id="kaydet" style="display:none;padding:8px 20px;font-size:12px">↑ Kaydet</button>
   </header>
 
   <div class="tabs">
@@ -932,6 +933,60 @@ $('mdlpng').addEventListener('click',async()=>{
     const a=document.createElement('a');a.href=u;a.download=mbFn('png');a.click();URL.revokeObjectURL(u);
   }catch(e){mbErr(e.message);}finally{b.disabled=false;b.textContent=old;}
 });
+
+/* ---------- ListyDesign iframe entegrasyonu ---------- */
+if (window !== window.top) {
+  $('kaydet').style.display = '';
+}
+
+$('kaydet').addEventListener('click', async () => {
+  const btn = $('kaydet');
+  const tab = document.querySelector('.tab.active')?.dataset.tab;
+  let svg = null;
+
+  if (tab === 'clean') {
+    svg = cleanedText;
+  } else if (tab === 'manual') {
+    const s = mbWorkingSVG(); svg = s || null;
+  } else if (tab === 'text') {
+    svg = tSvgText;
+  } else if (tab === 'compose') {
+    if (!cBaseText) { alert('Önce bir taban tasarım yükleyin.'); return; }
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Kaydediliyor';
+    try { svg = await cCompose(); } catch(e) { btn.disabled = false; btn.textContent = '↑ Kaydet'; return; }
+    btn.disabled = false; btn.textContent = '↑ Kaydet';
+  }
+
+  if (!svg) { alert('Kaydedilecek SVG yok. Önce bir işlem yapın.'); return; }
+  window.parent.postMessage({ type: 'svg-save', svg }, '*');
+});
+
+/* ---------- ?svg= URL param ile otomatik yükle ---------- */
+(async function() {
+  const u = new URLSearchParams(location.search).get('svg');
+  if (!u) return;
+  try {
+    const res = await fetch('/proxy?url=' + encodeURIComponent(u));
+    if (!res.ok) throw new Error('proxy ' + res.status);
+    const text = await res.text();
+    svgText = text;
+    fileName = decodeURIComponent(u.split('/').pop() || '').split('?')[0] || 'design.svg';
+    if (!/\.svg$/i.test(fileName)) fileName = 'design.svg';
+    $('fname').textContent = fileName;
+    $('go').disabled = false;
+    renderSvg('beforeSvg', text);
+    $('markers').innerHTML = '';
+    $('afterSvg').innerHTML = '';
+    $('dl').disabled = true; $('png').disabled = true;
+    cleanedText = null;
+    $('results').style.display = 'block';
+    $('islandsBox').style.display = 'none';
+    $('stats').innerHTML = '';
+    $('beforeTag').textContent = '— ada';
+  } catch(e) {
+    console.error('SVG param yüklenemedi:', e.message);
+  }
+})();
 
 </script>
 </body>

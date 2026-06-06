@@ -592,6 +592,19 @@ def index():
     return JSONResponse({"service": "auto-svg-clean", "ui": "index.html yok"})
 
 
+@app.get("/proxy")
+async def proxy_svg(url: str = Query(..., description="Uzak SVG URL — CORS bypass icin sunucu tarafi cekme")):
+    """Verilen URL'deki SVG'yi sunucu tarafindan cekip dondurur."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "auto-svg-clean/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            content = r.read()
+    except Exception as e:
+        raise HTTPException(400, f"SVG cekilemedi: {e}")
+    return Response(content=content, media_type="image/svg+xml")
+
+
 @app.get("/info")
 def info():
     return {
