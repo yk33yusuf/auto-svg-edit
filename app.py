@@ -485,6 +485,101 @@ def _orient_pool(axis_cands, orient):
     return axis_cands   # 'D': kısa olana bak
 
 
+# --------------------------------------------------------------------------- #
+# PROFESYONEL KÖPRÜ: en yakın nokta çifti + yerel kalınlık ölçümü + yamuk path
+# --------------------------------------------------------------------------- #
+
+def _closest_pairs(isl_mask, rest_mask, n_pairs=1, min_sep_px=20.0):
+    """
+    Ada kenarı ile ana gövde arasındaki en yakın n_pairs nokta çiftini bulur.
+    İyi dağılmış seçim için min_sep_px mesafe garantisi.
+    Returns: list of (ix, iy, rx, ry)
+    """
+    edt, edt_inds = ndimage.distance_transform_edt(~rest_mask, return_indices=True)
+    edge = isl_mask & ~ndimage.binary_erosion(isl_mask)
+    if not edge.any():
+        edge = isl_mask
+    ey, ex = np.where(edge)
+    d_vals = edt[ey, ex]
+    order = np.argsort(d_vals)
+
+    chosen = []
+    for idx in order:
+        ix, iy = int(ex[idx]), int(ey[idx])
+        rx, ry = int(edt_inds[1][iy, ix]), int(edt_inds[0][iy, ix])
+        if all(math.hypot(ix - cx, iy - cy) >= min_sep_px for cx, cy, *_ in chosen):
+            chosen.append((ix, iy, rx, ry))
+        if len(chosen) >= n_pairs:
+            break
+    return chosen
+
+
+def _perp_stroke_width_px(black_mask, px, py, bridge_dx, bridge_dy, max_search=80):
+    """
+    (px,py) noktasında, köprü yönüne dik olarak siyah bölgenin genişliğini ölçer.
+    bridge_dx/dy: köprü yönünün birim vektörü.
+    Returns: pixel cinsinden tam genişlik.
+    """
+    h, w = black_mask.shape
+    norm = math.hypot(bridge_dx, bridge_dy)
+    if norm < 1e-9:
+        return 2
+    pdx, pdy = -bridge_dy / norm, bridge_dx / norm  # dik birim vektör
+    count = 1
+    for sign in (1, -1):
+        for d in range(1, max_search + 1):
+            nx = int(round(px + sign * pdx * d))
+            ny = int(round(py + sign * pdy * d))
+            if not (0 <= nx < w and 0 <= ny < h):
+                break
+            if not black_mask[ny, nx]:
+                break
+            count += 1
+    return max(count, 1)
+
+
+def _tapered_bridge_svg_elem(ix, iy, rx, ry, w1_px, w2_px, color, scale,
+                              min_half_svg=1.2, max_half_svg=24.0):
+    """
+    Ada (ix,iy) → gövde (rx,ry) arasında konik (yamuk) SVG köprüsü üretir.
+    w1_px / w2_px: her iki uçtaki tam çizgi genişliği (piksel cinsinden).
+    Şekil: fill'li <path> — eklendiği belli olmayan doğal geçiş.
+    """
+    dx, dy = rx - ix, ry - iy
+    length = math.hypot(dx, dy)
+
+    # Yarı-genişlikler SVG biriminde, sıkıştırılmış
+    hw1 = min(max(w1_px / 2.0 / scale, min_half_svg), max_half_svg)
+    hw2 = min(max(w2_px / 2.0 / scale, min_half_svg), max_half_svg)
+
+    if length < 0.5:
+        r = max(hw1, hw2)
+        cx, cy = (ix + rx) / 2.0 / scale, (iy + ry) / 2.0 / scale
+        return f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="{color}"/>'
+
+    ndx, ndy = dx / length, dy / length   # köprü yönü (birim)
+    pdx, pdy = -ndy, ndx                  # dik birim vektör
+
+    # SVG koordinatlarına çevir
+    sx1, sy1 = ix / scale, iy / scale
+    sx2, sy2 = rx / scale, ry / scale
+
+    # Yamuk köşeleri: sol1 → sol2 → sağ2 → sağ1
+    p1x, p1y = pdx * hw1, pdy * hw1
+    p2x, p2y = pdx * hw2, pdy * hw2
+
+    corners = [
+        (sx1 + p1x, sy1 + p1y),
+        (sx2 + p2x, sy2 + p2y),
+        (sx2 - p2x, sy2 - p2y),
+        (sx1 - p1x, sy1 - p1y),
+    ]
+    d_str = (f"M{corners[0][0]:.2f},{corners[0][1]:.2f} "
+             + " ".join(f"L{x:.2f},{y:.2f}" for x, y in corners[1:])
+             + " Z")
+    return f'<path d="{d_str}" fill="{color}"/>'
+
+
 def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
                             bridge_width=2.0, color="#000000",
                             auto_multi=True, bridges_per=150.0, max_bridges=6,
@@ -999,48 +1094,31 @@ async def selective_endpoint(
                     continue
                 isl_mask2 = labels2 == lbl
 
-                # ── Yön + doğal kalınlık (orijinal mask daha temiz) ──
-                # bridge_width minimum garanti, auto_bw büyükse onu kullan
-                isl_orient, auto_bw = _island_orient_and_width(orig_mask, scale)
-                auto_bw = max(auto_bw, bridge_width)
-
-                edt, edt_inds = ndimage.distance_transform_edt(~rest, return_indices=True)
-                axis_cands = _axis_bridge_candidates(isl_mask2, rest)
-                pool = _orient_pool(axis_cands, isl_orient)
-
-                edge = isl_mask2 & ~ndimage.binary_erosion(isl_mask2)
-                if not edge.any():
-                    edge = isl_mask2
-                ey, ex = np.where(edge)
-                d_vals = edt[ey, ex]
-                ord_ = np.argsort(d_vals)
-                diag_cands = []
-                for idx in ord_[:min(300, len(ord_))]:
-                    px, py = int(ex[idx]), int(ey[idx])
-                    tx, ty = int(edt_inds[1][py, px]), int(edt_inds[0][py, px])
-                    diag_cands.append((int(d_vals[idx]), px, py, tx, ty, 'D'))
-
-                if not pool and not diag_cands:
-                    continue
-
+                # ── Kaç köprü? Ada boyutuna göre ──
                 ys2, xs2 = np.where(isl_mask2)
                 span_svg = max(xs2.max() - xs2.min(), ys2.max() - ys2.min()) / scale
                 n_br = int(np.clip(round(span_svg / 150.0), 1, 6))
-                min_gap_px = max(span_svg * scale / (n_br + 1), 15)
-                chosen = []
-                for src in [pool or diag_cands, diag_cands]:
-                    for c in src:
-                        px2, py2 = c[1], c[2]
-                        if all((px2 - cx) ** 2 + (py2 - cy) ** 2 >= min_gap_px ** 2 for cx, cy, *_ in chosen):
-                            chosen.append(c)
-                        if len(chosen) >= n_br:
-                            break
-                    if len(chosen) >= n_br:
-                        break
-                for c in chosen:
-                    _, x1c, y1c, x2c, y2c, d = c
-                    svg_bridges.append(_bridge_svg_elem(x1c, y1c, x2c, y2c, d, auto_bw, "#000000", scale, 10.0))
-                    _stamp_line(rest, x1c, y1c, x2c, y2c)
+                min_sep_px = max(span_svg * scale / (n_br + 1), 15.0)
+
+                # ── En yakın nokta çiftleri ──
+                pairs = _closest_pairs(isl_mask2, rest, n_pairs=n_br, min_sep_px=min_sep_px)
+                if not pairs:
+                    rest = rest | isl_mask2
+                    continue
+
+                for (ix, iy, rx_, ry_) in pairs:
+                    ddx, ddy = rx_ - ix, ry_ - iy
+                    blen = math.hypot(ddx, ddy)
+                    if blen < 0.5:
+                        continue
+                    ndx_b = ddx / blen
+                    ndy_b = ddy / blen
+                    # Her iki uçta yerel çizgi kalınlığını dik yönde ölç
+                    w_isl  = _perp_stroke_width_px(black2, ix,  iy,  ndx_b, ndy_b)
+                    w_rest = _perp_stroke_width_px(black2, rx_, ry_, ndx_b, ndy_b)
+                    svg_bridges.append(_tapered_bridge_svg_elem(
+                        ix, iy, rx_, ry_, w_isl, w_rest, "#000000", scale))
+                    _stamp_line(rest, ix, iy, rx_, ry_)
                 rest = rest | isl_mask2
             if svg_bridges:
                 i_close = result.rfind("</svg>")
