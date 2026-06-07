@@ -3,262 +3,581 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>auto-svg-edit</title>
+<title>SVG Edit Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#131419;--bg2:#1a1c23;--surface:#20232c;--surface2:#262a35;
-    --line:#2f333f;--text:#e9eaee;--muted:#888ea0;--accent:#ff7a18;
-    --danger:#ff4d4d;--ok:#33d68a;--sidebar:320px;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Plex Mono',monospace}
+:root {
+  --bg:      #16171b;
+  --bg2:     #111214;
+  --surface: #1e1f24;
+  --sur2:    #26272d;
+  --line:    #2c2d33;
+  --line2:   #3a3b42;
+  --text:    #f0f0f2;
+  --muted:   #8b8d98;
+  --muted2:  #555762;
+  --accent:  #f07820;
+  --danger:  #ef4444;
+  --ok:      #22c55e;
+  --warn:    #f0a020;
+  --ws:      #eaeaed;   /* workspace */
+  --sidebar: 268px;
+  --topbar:  46px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
 
-  /* ── layout ── */
-  .sidebar{
-    position:fixed;top:0;left:0;width:var(--sidebar);height:100vh;
-    overflow-y:auto;overflow-x:hidden;
-    background:var(--bg);border-right:1px solid var(--line);
-    z-index:20;display:flex;flex-direction:column;
-  }
-  .sidebar::-webkit-scrollbar{width:4px}
-  .sidebar::-webkit-scrollbar-thumb{background:var(--line);border-radius:2px}
-  .main{
-    margin-left:var(--sidebar);min-height:100vh;padding:28px 28px 80px;
-    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
-    background-size:42px 42px;
-  }
-  .main::before{content:"";position:fixed;top:0;left:var(--sidebar);right:0;bottom:0;pointer-events:none;
-    background:radial-gradient(circle at 50% 0%,rgba(255,122,24,.06),transparent 55%);z-index:0}
+/* ─── TOP BAR ─── */
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--topbar);
+  background: var(--bg2);
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center;
+  padding: 0 14px;
+  z-index: 30; gap: 10px;
+}
+.tb-brand {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; letter-spacing: -.01em;
+  color: var(--text); flex-shrink: 0;
+}
+.tb-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); flex-shrink: 0;
+  box-shadow: 0 0 0 0 rgba(240,120,32,.5);
+  animation: tbpulse 2.5s infinite;
+}
+@keyframes tbpulse {
+  0%   { box-shadow: 0 0 0 0 rgba(240,120,32,.5); }
+  60%  { box-shadow: 0 0 0 6px rgba(240,120,32,0); }
+  100% { box-shadow: 0 0 0 0 rgba(240,120,32,0); }
+}
+.tb-file {
+  flex: 1; text-align: center;
+  font-size: 12px; font-weight: 500; color: var(--muted);
+}
+.tb-file b { color: var(--text); font-weight: 600; }
+.tb-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.tb-status {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 500; color: var(--muted);
+  padding: 3px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.tb-status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 0 rgba(34,197,94,.5);
+  animation: okpulse 3s infinite;
+}
+@keyframes okpulse {
+  0%   { box-shadow: 0 0 0 0 rgba(34,197,94,.5); }
+  60%  { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+#kaydet {
+  display: none;
+  background: var(--accent); color: #fff; border: none;
+  border-radius: 7px; padding: 7px 14px;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: opacity .15s;
+}
+#kaydet:hover { opacity: .85; }
 
-  /* ── sidebar header ── */
-  .sb-header{
-    padding:20px 20px 16px;border-bottom:1px solid var(--line);flex-shrink:0;
-    display:flex;flex-direction:column;gap:10px;
-  }
-  .brand h1{font-family:'Anton',sans-serif;font-size:22px;letter-spacing:1px;text-transform:uppercase;line-height:1}
-  .brand h1 b{color:var(--accent)}
-  .brand .sub{color:var(--muted);font-size:10px;letter-spacing:2px;text-transform:uppercase;margin-top:2px}
-  .status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(51,214,138,.6);animation:pulse 2s infinite;flex-shrink:0}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(51,214,138,.5)}70%{box-shadow:0 0 0 7px rgba(51,214,138,0)}100%{box-shadow:0 0 0 0 rgba(51,214,138,0)}}
+/* ─── LAYOUT ─── */
+.sidebar {
+  position: fixed;
+  top: var(--topbar); left: 0;
+  width: var(--sidebar);
+  height: calc(100vh - var(--topbar));
+  overflow-y: auto; overflow-x: hidden;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  z-index: 20;
+  display: flex; flex-direction: column;
+}
+.sidebar::-webkit-scrollbar { width: 3px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; }
 
-  /* ── sidebar sections ── */
-  .sb-sec{border-bottom:1px solid var(--line)}
-  .sb-sec-head{
-    padding:12px 20px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
-    font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);
-    user-select:none;transition:.15s;
-  }
-  .sb-sec-head:hover{color:var(--text);background:var(--surface)}
-  .sb-sec-head.active{color:var(--accent)}
-  .sb-sec-head .arr{transition:transform .2s;font-size:10px}
-  .sb-sec-head.open .arr{transform:rotate(180deg)}
-  .sb-sec-body{display:none;padding:16px 20px;background:var(--surface)}
-  .sb-sec-body.open{display:block}
+.main {
+  margin-left: var(--sidebar);
+  margin-top: var(--topbar);
+  min-height: calc(100vh - var(--topbar));
+  padding: 22px;
+  background: var(--ws);
+}
 
-  /* ── file drop (sidebar) ── */
-  .drop-sm{
-    border:1px dashed var(--line);border-radius:3px;padding:16px 12px;
-    text-align:center;cursor:pointer;transition:.18s;
-  }
-  .drop-sm:hover,.drop-sm.drag{border-color:var(--accent);background:var(--surface2)}
-  .drop-sm p{color:var(--muted);font-size:11px;margin-top:4px}
-  .drop-sm b{color:var(--text)}
-  .drop-sm .ico{color:var(--accent);font-size:20px;font-family:'Anton',sans-serif}
+/* ─── DROP ZONE ─── */
+.drop-zone {
+  margin: 12px;
+  border: 1.5px dashed var(--line2);
+  border-radius: 10px;
+  padding: 18px 14px 14px;
+  text-align: center; cursor: pointer;
+  transition: all .2s;
+  background: var(--surface);
+}
+.drop-zone:hover, .drop-zone.drag {
+  border-color: var(--accent);
+  background: rgba(240,120,32,.06);
+}
+.drop-icon {
+  width: 38px; height: 38px;
+  background: var(--sur2); border: 1px solid var(--line2);
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 10px; font-size: 18px; color: var(--accent);
+}
+.drop-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.drop-sub   { font-size: 11px; color: var(--muted); }
+.drop-fname {
+  display: none;
+  font-size: 11px; font-weight: 500; color: var(--accent);
+  margin-top: 7px; word-break: break-all;
+  padding: 4px 8px;
+  background: rgba(240,120,32,.1);
+  border-radius: 5px;
+}
 
-  /* ── form controls ── */
-  .field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
-  .field:last-child{margin-bottom:0}
-  .field label{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
-  .field input[type=number],.field select,.field input[type=text]{
-    background:var(--bg2);border:1px solid var(--line);color:var(--text);
-    font-family:inherit;font-size:13px;padding:7px 10px;border-radius:3px;width:100%;
-  }
-  .field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
-  .field .val{color:var(--accent);font-weight:600}
-  input[type=range]{accent-color:var(--accent);width:100%}
-  .chk{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);
-    letter-spacing:1px;text-transform:uppercase;cursor:pointer;margin-bottom:10px}
-  .chk input{accent-color:var(--accent);width:14px;height:14px}
-  .seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden;width:100%}
-  .seg-btn{flex:1;background:var(--bg2);color:var(--muted);padding:7px 8px;border:none;
-    font-family:inherit;font-size:10px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;transition:.15s}
-  .seg-btn.active{background:var(--accent);color:#1a0f04;font-weight:700}
-  .seg-btn:not(.active):hover{color:var(--text)}
-  .lchip{background:var(--bg2);border:1px solid var(--line);color:var(--muted);padding:5px 10px;
-    border-radius:3px;font-family:inherit;font-size:11px;cursor:pointer;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-  .lchip.active{border-color:var(--accent);color:var(--accent)}
-  .chips-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+/* ─── SIDEBAR SECTIONS ─── */
+.sb-sec { border-bottom: 1px solid var(--line); }
+.sb-sec-head {
+  padding: 9px 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); user-select: none; transition: all .15s;
+}
+.sb-sec-head:hover { color: var(--text); background: var(--surface); }
+.sb-sec-head.active { color: var(--accent); }
+.sb-sec-head .sh-left { display: flex; align-items: center; gap: 8px; }
+.sec-icon {
+  width: 22px; height: 22px;
+  background: var(--sur2); border: 1px solid var(--line2);
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; flex-shrink: 0;
+  transition: all .15s; color: var(--muted);
+}
+.sb-sec-head.active .sec-icon {
+  background: rgba(240,120,32,.14);
+  border-color: rgba(240,120,32,.3);
+  color: var(--accent);
+}
+.sb-sec-head .arr { transition: transform .2s; font-size: 8px; opacity: .4; }
+.sb-sec-head.open .arr { transform: rotate(180deg); }
+.sb-sec-body { display: none; padding: 14px 12px; background: var(--surface); }
+.sb-sec-body.open { display: block; }
 
-  button{font-family:inherit;cursor:pointer;border:none;border-radius:3px;
-    font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:600;transition:.15s}
-  .btn-go{background:var(--accent);color:#1a0f04;padding:9px 16px;width:100%}
-  .btn-go:hover{background:#ff8c33}
-  .btn-go:disabled{background:var(--line);color:var(--muted);cursor:not-allowed}
-  .btn-row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
-  .btn-sm{background:transparent;color:var(--ok);border:1px solid var(--ok);padding:7px 12px;font-size:10px}
-  .btn-sm:hover{background:rgba(51,214,138,.1)}
-  .btn-sm:disabled{opacity:.35;cursor:not-allowed;border-color:var(--line);color:var(--muted)}
-  .btn-save{background:transparent;color:var(--accent);border:1px solid var(--accent);padding:7px 12px;font-size:10px}
-  .btn-save:hover{background:rgba(255,122,24,.1)}
-  .btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger);padding:7px 12px;font-size:10px}
+/* ─── FORM CONTROLS ─── */
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; }
+.field:last-child { margin-bottom: 0; }
+.field label {
+  font-size: 11px; font-weight: 500; color: var(--muted);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.field label .val { font-weight: 700; color: var(--accent); }
+.field input[type=number],
+.field select,
+.field input[type=text] {
+  background: var(--bg); border: 1px solid var(--line2);
+  color: var(--text); font-family: inherit;
+  font-size: 12px; font-weight: 500;
+  padding: 7px 10px; border-radius: 7px; width: 100%;
+  transition: border-color .15s; outline: none;
+}
+.field input:focus, .field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(240,120,32,.12);
+}
+input[type=range] { accent-color: var(--accent); width: 100%; }
+.chk-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 500; color: var(--muted);
+  cursor: pointer; margin-bottom: 10px; padding: 2px 0;
+}
+.chk-row input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
 
-  /* ── kaydet (header) ── */
-  .btn-kaydet{
-    background:var(--accent);color:#1a0f04;padding:8px 16px;
-    width:100%;font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:700;
-    border-radius:3px;border:none;cursor:pointer;
-  }
-  .btn-kaydet:hover{background:#ff8c33}
+/* segmented */
+.seg {
+  display: flex; background: var(--bg);
+  border: 1px solid var(--line2); border-radius: 7px;
+  overflow: hidden; width: 100%;
+}
+.seg-btn {
+  flex: 1; background: none; color: var(--muted);
+  padding: 6px 4px; border: none;
+  font-family: inherit; font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+}
+.seg-btn.active { background: var(--accent); color: #fff; border-radius: 6px; margin: 2px; }
+.seg-btn:not(.active):hover { color: var(--text); }
 
-  /* ── main area sections ── */
-  .main-sec{margin-bottom:32px;position:relative;z-index:1}
-  .main-sec-head{
-    font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);
-    margin-bottom:12px;display:flex;align-items:center;gap:10px;
-  }
-  .main-sec-head::after{content:'';flex:1;height:1px;background:var(--line)}
+/* ─── BUTTONS ─── */
+button { font-family: inherit; cursor: pointer; }
+.btn-primary {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: var(--accent); color: #fff; border: none;
+  border-radius: 8px; padding: 9px 16px; width: 100%;
+  font-size: 13px; font-weight: 600; transition: opacity .15s;
+}
+.btn-primary:hover { opacity: .85; }
+.btn-primary:disabled { opacity: .3; cursor: not-allowed; }
 
-  .panel{background:var(--surface);border:1px solid var(--line);border-radius:4px}
-  .compare{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  @media(max-width:900px){.compare{grid-template-columns:1fr}}
-  .view{background:var(--surface);border:1px solid var(--line);border-radius:4px;overflow:hidden}
-  .view .head{padding:8px 14px;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:1.5px;
-    text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
-  .view .head b{color:var(--text)}
-  .view.before .head b{color:var(--danger)}
-  .view.after .head b{color:var(--ok)}
-  .canvas{position:relative;background:linear-gradient(45deg,#fff 25%,#f0f0f0 0,#f0f0f0 50%,#fff 0,#fff 75%,#f0f0f0 0);
-    background-size:20px 20px;padding:16px;display:flex;align-items:center;justify-content:center;min-height:240px}
-  .canvas svg{width:100%;height:auto;max-height:500px;display:block}
-  .markers{position:absolute;inset:16px;pointer-events:none}
-  /* ada işaretçileri */
-  .imark{
-    position:absolute;transform:translate(-50%,-50%);
-    border-radius:50%;width:28px;height:28px;border:2px solid;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    cursor:pointer;font-family:'IBM Plex Mono',monospace;
-    line-height:1;box-shadow:0 0 0 3px rgba(0,0,0,.3);
-    transition:transform .1s,box-shadow .1s;z-index:5;
-  }
-  .imark:hover{transform:translate(-50%,-50%) scale(1.25);box-shadow:0 0 0 5px rgba(0,0,0,.4);}
-  .imark[data-s="delete"]{background:var(--danger);border-color:#ff8080;color:#fff;}
-  .imark[data-s="bridge"]{background:var(--accent);border-color:#ffaa66;color:#1a0f04;}
-  .imark[data-s="keep"]{background:var(--ok);border-color:#66ffb3;color:#05200f;}
-  .imark .mnum{font-size:9px;font-weight:700;line-height:1}
-  .imark .mico{font-size:9px;line-height:1}
-  /* canvas zoom */
-  .canvas-zoom{overflow:hidden;cursor:zoom-in}
-  .canvas-inner{position:relative;width:100%;line-height:0;transition:transform .06s linear}
+.btn-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.btn-icon {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--sur2); border: 1px solid var(--line2);
+  color: var(--muted); border-radius: 7px;
+  padding: 6px 11px; font-size: 11px; font-weight: 600;
+  transition: all .15s;
+}
+.btn-icon:hover { background: var(--bg2); color: var(--text); border-color: var(--muted2); }
+.btn-icon:disabled { opacity: .3; cursor: not-allowed; }
+.btn-icon.ok    { color: var(--ok);     border-color: rgba(34,197,94,.2); }
+.btn-icon.ok:hover    { background: rgba(34,197,94,.08); }
+.btn-icon.accent{ color: var(--accent); border-color: rgba(240,120,32,.2); }
+.btn-icon.accent:hover{ background: rgba(240,120,32,.08); }
+.btn-icon.danger{ color: var(--danger); border-color: rgba(239,68,68,.2); }
+.btn-icon.danger:hover{ background: rgba(239,68,68,.08); }
 
-  .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
-  .stat{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:12px 16px;min-width:110px}
-  .stat .n{font-family:'Anton',sans-serif;font-size:28px;line-height:1}
-  .stat .l{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-top:4px}
-  .stat.danger .n{color:var(--danger)}
-  .stat.accentstat .n{color:var(--accent)}
-  .stat.ok .n{color:var(--ok)}
-  .islands{margin-top:18px}
-  .islands h3{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
-  .ilist{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
-  .icard{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--danger);
-    border-radius:3px;padding:8px 12px;font-size:11px;color:var(--muted)}
-  .icard b{color:var(--text)}
-  .err-box{display:none;margin-top:14px;background:rgba(255,77,77,.1);border:1px solid var(--danger);
-    color:#ffb3b3;padding:12px 16px;border-radius:4px;font-size:12px}
-  .spin{display:inline-block;width:12px;height:12px;border:2px solid currentColor;
-    border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px}
-  @keyframes spin{to{transform:rotate(360deg)}}
+/* bulk operation row */
+.bulk-row { display: flex; gap: 5px; margin-bottom: 10px; }
+.bulk-btn {
+  flex: 1; padding: 5px 4px; border-radius: 6px; border: 1px solid;
+  font-family: inherit; font-size: 10px; font-weight: 700;
+  cursor: pointer; transition: all .15s; text-align: center;
+}
+.bulk-btn.del { color:var(--danger); border-color:rgba(239,68,68,.25); background:rgba(239,68,68,.06); }
+.bulk-btn.del:hover { background:rgba(239,68,68,.14); }
+.bulk-btn.br  { color:var(--accent); border-color:rgba(240,120,32,.25); background:rgba(240,120,32,.06); }
+.bulk-btn.br:hover  { background:rgba(240,120,32,.14); }
+.bulk-btn.kp  { color:var(--ok);     border-color:rgba(34,197,94,.25);  background:rgba(34,197,94,.06); }
+.bulk-btn.kp:hover  { background:rgba(34,197,94,.14); }
 
-  .layer-ov{position:absolute;cursor:grab;touch-action:none;line-height:0}
-  .layer-ov.sel{outline:1.5px dashed var(--accent);outline-offset:4px}
-  .mb-island{position:absolute;border:2px solid var(--danger);border-radius:50%;
-    transform:translate(-50%,-50%);box-shadow:0 0 0 2px rgba(255,77,77,.2)}
-  .mb-dot{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--accent);
-    transform:translate(-50%,-50%);box-shadow:0 0 0 3px rgba(255,122,24,.3);z-index:5}
+/* layer chips */
+.lchip {
+  background: var(--bg); border: 1px solid var(--line2);
+  color: var(--muted); padding: 5px 10px; border-radius: 6px;
+  font-family: inherit; font-size: 11px; font-weight: 500;
+  cursor: pointer; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 100%; transition: all .15s;
+}
+.lchip.active { border-color: var(--accent); color: var(--accent); background: rgba(240,120,32,.08); }
+.chips-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
 
-  .empty-state{color:var(--muted);font-size:12px;padding:32px;text-align:center;border:1px dashed var(--line);border-radius:4px}
+/* ─── ISLAND SIDEBAR LIST ─── */
+.island-legend {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.leg-chip {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 20px; border: 1px solid;
+}
+.leg-chip.del { color:var(--danger); border-color:rgba(239,68,68,.3); background:rgba(239,68,68,.07); }
+.leg-chip.br  { color:var(--accent); border-color:rgba(240,120,32,.3); background:rgba(240,120,32,.07); }
+.leg-chip.kp  { color:var(--ok);     border-color:rgba(34,197,94,.3);  background:rgba(34,197,94,.07); }
 
-  footer{color:var(--muted);font-size:10px;letter-spacing:1px;text-align:center;margin-top:32px;position:relative;z-index:1}
-  footer code{color:var(--accent)}
+.island-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 190px; overflow-y: auto; margin-bottom: 10px;
+}
+.island-list::-webkit-scrollbar { width: 3px; }
+.island-list::-webkit-scrollbar-thumb { background: var(--line2); }
+.irow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 7px;
+  background: var(--bg); border: 1px solid var(--line);
+  transition: border-color .12s;
+}
+.irow:hover { border-color: var(--line2); }
+.irow-num {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--sur2); border: 1px solid var(--line2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 800; flex-shrink: 0;
+  color: var(--muted);
+}
+.irow-info { flex: 1; min-width: 0; }
+.irow-size { font-size: 10px; color: var(--muted); font-weight: 500; }
+.irow-stbtn {
+  padding: 3px 8px; border-radius: 20px; border: 1px solid;
+  font-family: inherit; font-size: 10px; font-weight: 700;
+  cursor: pointer; flex-shrink: 0; transition: all .1s;
+}
+.irow-stbtn[data-s="delete"] { color:var(--danger); border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.1); }
+.irow-stbtn[data-s="bridge"] { color:var(--accent); border-color:rgba(240,120,32,.35); background:rgba(240,120,32,.1); }
+.irow-stbtn[data-s="keep"]   { color:var(--ok);     border-color:rgba(34,197,94,.35);  background:rgba(34,197,94,.1); }
+
+/* ─── ERROR BOX ─── */
+.err-box {
+  display: none; margin-top: 10px;
+  background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.25);
+  color: #fca5a5; padding: 9px 12px; border-radius: 7px;
+  font-size: 11px; font-weight: 500; line-height: 1.5;
+}
+
+/* ─── SPINNER ─── */
+.spin {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid currentColor; border-top-color: transparent;
+  border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── MAIN AREA ─── */
+.main-sec { margin-bottom: 22px; }
+.main-sec-head {
+  font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: #8a8a8e;
+  margin-bottom: 12px; display: flex; align-items: center; gap: 10px;
+}
+.main-sec-head::after { content:''; flex:1; height:1px; background:#d4d4d8; }
+
+/* Canvas card */
+.cv-card {
+  background: #fff; border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.07), 0 4px 16px rgba(0,0,0,.05);
+  overflow: hidden;
+}
+.cv-header {
+  padding: 9px 14px;
+  background: #f8f8fa; border-bottom: 1px solid #e8e8ec;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.cv-header .cvh-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: #888;
+}
+.cv-header .cvh-tag {
+  font-size: 10px; font-weight: 700; padding: 2px 8px;
+  border-radius: 20px; border: 1px solid;
+}
+.cvh-tag.before { color:var(--danger); border-color:rgba(239,68,68,.3); background:rgba(239,68,68,.07); }
+.cvh-tag.after  { color:var(--ok);     border-color:rgba(34,197,94,.3);  background:rgba(34,197,94,.07); }
+.cvh-zoom {
+  display: flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 600; color: #888;
+}
+.cvh-zoom button {
+  width: 20px; height: 20px;
+  background: #ececf0; border: 1px solid #dde; border-radius: 5px;
+  font-size: 13px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-family: inherit; color: #555; transition: all .12s;
+}
+.cvh-zoom button:hover { background: #e0e0e6; }
+.cvh-zoom .zl {
+  min-width: 36px; text-align: center;
+  cursor: default; user-select: none; font-size: 11px;
+}
+.cvh-zoom .z1 {
+  font-size: 9px; padding: 0 5px; color: #999;
+  background: #ececf0; border: 1px solid #dde; border-radius: 5px;
+  height: 20px; cursor: pointer; transition: all .12s;
+  display: flex; align-items: center;
+}
+.cvh-zoom .z1:hover { background: #e0e0e6; color: #444; }
+
+.cv-body {
+  position: relative;
+  background: linear-gradient(45deg,#c8c8c8 25%,#d8d8d8 0,#d8d8d8 50%,#c8c8c8 0,#c8c8c8 75%,#d8d8d8 0);
+  background-size: 14px 14px;
+  min-height: 260px;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 16px;
+}
+.cv-body svg { width:100%; height:auto; max-height:560px; display:block; }
+
+/* canvas zoom/pan */
+.canvas-zoom  { overflow: hidden; user-select: none; }
+.canvas-inner { position: relative; width: 100%; line-height: 0; will-change: transform; }
+
+/* compare grid */
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media(max-width:900px){ .compare { grid-template-columns: 1fr; } }
+
+/* ─── ISLAND MARKERS (canvas) ─── */
+.imark {
+  position: absolute; transform: translate(-50%,-50%);
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 2.5px solid rgba(255,255,255,.45);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  cursor: pointer; font-family: inherit; line-height: 1;
+  box-shadow: 0 2px 8px rgba(0,0,0,.28), 0 0 0 3px rgba(0,0,0,.12);
+  transition: transform .12s, box-shadow .12s; z-index: 5;
+}
+.imark:hover {
+  transform: translate(-50%,-50%) scale(1.22);
+  box-shadow: 0 4px 16px rgba(0,0,0,.38), 0 0 0 4px rgba(0,0,0,.15);
+}
+.imark[data-s="delete"] { background: var(--danger); color: #fff; }
+.imark[data-s="bridge"] { background: var(--accent);  color: #fff; }
+.imark[data-s="keep"]   { background: var(--ok);      color: #fff; }
+.imark .mnum { font-size: 11px; font-weight: 800; line-height: 1; }
+.imark .mico { font-size: 9px;  line-height: 1; opacity: .8; }
+
+/* ─── STATS ─── */
+.stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.stat {
+  background: #fff; border: 1px solid #e4e4e8; border-radius: 10px;
+  padding: 12px 16px; min-width: 96px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.stat .n { font-size: 26px; font-weight: 800; letter-spacing: -.03em; line-height: 1; color: #1a1a1a; }
+.stat .l { font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: #999; margin-top: 3px; }
+.stat.danger .n { color: var(--danger); }
+.stat.ok     .n { color: var(--ok); }
+.stat.accent .n { color: var(--accent); }
+
+/* islands main list */
+.islands { margin-top: 14px; }
+.islands-ttl { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #999; margin-bottom: 8px; }
+.ilist { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
+.icard {
+  background: #fff; border: 1px solid #e4e4e8; border-left: 3px solid var(--danger);
+  border-radius: 7px; padding: 8px 12px; font-size: 11px; font-weight: 500; color: #666;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+.icard b { color: #1a1a1a; font-weight: 700; }
+
+/* manual bridge overlay */
+.layer-ov { position: absolute; cursor: grab; touch-action: none; line-height: 0; }
+.layer-ov.sel { outline: 1.5px dashed var(--accent); outline-offset: 4px; }
+.mb-island {
+  position: absolute; border: 2px solid var(--danger); border-radius: 50%;
+  transform: translate(-50%,-50%); box-shadow: 0 0 0 3px rgba(239,68,68,.15);
+}
+.mb-dot {
+  position: absolute; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent); transform: translate(-50%,-50%);
+  box-shadow: 0 0 0 3px rgba(240,120,32,.3); z-index: 5;
+}
+
+/* empty state */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 64vh; text-align: center; gap: 10px;
+}
+.es-icon {
+  width: 60px; height: 60px; border-radius: 16px;
+  background: var(--surface); border: 1px solid var(--line2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; margin-bottom: 4px;
+}
+.empty-state h2 { font-size: 16px; font-weight: 700; color: var(--muted); }
+.empty-state p { font-size: 12px; color: var(--muted2); max-width: 220px; line-height: 1.6; }
+
+/* manual bridge component counter */
+.mComp-num { font-size: 28px; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+
+/* note text */
+.note { color: var(--muted); font-size: 11px; margin-top: 8px; line-height: 1.5; }
 </style>
 </head>
 <body>
 
-<!-- LEFT SIDEBAR -->
+<!-- ══ TOP BAR ══ -->
+<div class="topbar">
+  <div class="tb-brand">
+    <div class="tb-dot"></div>
+    SVG Edit
+  </div>
+  <div class="tb-file" id="fname">Dosya yüklenmedi</div>
+  <div class="tb-right">
+    <div class="tb-status">
+      <div class="tb-status-dot"></div>
+      aktif
+    </div>
+    <button id="kaydet">↑ Kaydet</button>
+  </div>
+</div>
+
+<!-- ══ SIDEBAR ══ -->
 <div class="sidebar">
 
-  <div class="sb-header">
-    <div class="brand">
-      <h1>auto<b>·</b>svg<b>·</b>edit</h1>
-      <div class="sub">metal tasarım editörü</div>
-    </div>
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <div class="status"><span class="dot"></span> servis aktif</div>
-    </div>
-    <button class="btn-kaydet" id="kaydet" style="display:none">↑ Kaydet</button>
-  </div>
-
-  <!-- FILE UPLOAD -->
-  <div class="sb-sec">
-    <div class="sb-sec-body open" style="padding:14px 16px">
-      <div class="drop-sm" id="drop">
-        <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
-        <div class="ico">[ + ]</div>
-        <p><b>SVG yükle</b> veya sürükle</p>
-        <p id="fname" style="color:var(--accent);margin-top:3px;word-break:break-all"></p>
-      </div>
+  <!-- drop zone -->
+  <div style="flex-shrink:0">
+    <div class="drop-zone" id="drop">
+      <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
+      <div class="drop-icon">+</div>
+      <div class="drop-title">SVG yükle veya sürükle</div>
+      <div class="drop-sub">.svg dosyaları desteklenir</div>
+      <div class="drop-fname" id="dropFname"></div>
     </div>
   </div>
 
   <!-- ADA TEMİZLE -->
   <div class="sb-sec" id="sec-clean">
     <div class="sb-sec-head active open" onclick="toggleSec('clean')">
-      Ada Temizle / Köprüle <span class="arr">▲</span>
+      <div class="sh-left">
+        <div class="sec-icon">◎</div>
+        Ada Temizle
+      </div>
+      <span class="arr">▲</span>
     </div>
     <div class="sb-sec-body open">
+
       <div class="field">
-        <label>koyu eşiği · <span class="val" id="dtVal">110</span></label>
+        <label>Koyu Eşiği <span class="val" id="dtVal">110</span></label>
         <input type="range" id="dark" min="40" max="200" value="110">
       </div>
       <div class="field">
-        <label>köprü kalınlığı · <span class="val" id="bwVal">2</span></label>
+        <label>Köprü Kalınlığı (min) <span class="val" id="bwVal">2</span></label>
         <input type="range" id="bw" min="0.5" max="12" value="2" step="0.5">
       </div>
       <div class="field">
-        <label>render ölçek</label>
+        <label>Render Ölçek</label>
         <input type="number" id="scale" value="2" min="1" max="4" step="0.5">
       </div>
       <div class="field">
-        <label>PNG ölçek</label>
+        <label>PNG Ölçek</label>
         <input type="number" id="pngScale" value="3" min="1" max="6" step="0.5">
       </div>
-      <label class="chk"><input type="checkbox" id="trans" checked> şeffaf zemin</label>
+      <label class="chk-row">
+        <input type="checkbox" id="trans" checked>
+        Şeffaf zemin
+      </label>
 
-      <!-- Analiz Et -->
-      <button class="btn-go" id="go" disabled>Analiz Et</button>
+      <button class="btn-primary" id="go" disabled>Analiz Et</button>
 
-      <!-- Ada seçici (analiz sonrası görünür) -->
-      <div id="islandCtrl" style="display:none;margin-top:10px">
-        <p style="font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">
-          İşaretçiye tıkla: <span style="color:var(--danger)">✕ Sil</span> · <span style="color:var(--accent)">⟷ Köprüle</span> · <span style="color:var(--ok)">✓ Tut</span>
-        </p>
-        <div class="btn-row" style="margin-bottom:8px">
-          <button class="btn-sm" id="allDel">Hepsini Sil</button>
-          <button class="btn-sm" id="allBr" style="color:var(--accent);border-color:var(--accent)">Hepsini Köprüle</button>
-          <button class="btn-sm" id="allKeep" style="color:var(--ok);border-color:var(--ok)">Hepsini Tut</button>
+      <!-- Ada seçici (analiz sonrası) -->
+      <div id="islandCtrl" style="display:none; margin-top:14px">
+        <div class="island-legend">
+          <div class="leg-chip del">✕ Sil</div>
+          <div class="leg-chip br">⟷ Köprüle</div>
+          <div class="leg-chip kp">✓ Tut</div>
         </div>
-        <button class="btn-go" id="applyBtn">Uygula Seçimi</button>
+
+        <div class="island-list" id="islandRows"></div>
+
+        <div class="bulk-row">
+          <button class="bulk-btn del" id="allDel">Hepsini Sil</button>
+          <button class="bulk-btn br"  id="allBr">Köprüle</button>
+          <button class="bulk-btn kp"  id="allKeep">Tut</button>
+        </div>
+
+        <button class="btn-primary" id="applyBtn">Seçimi Uygula</button>
       </div>
 
-      <div class="btn-row" style="margin-top:8px">
-        <button class="btn-sm" id="dl" disabled>↓ SVG</button>
-        <button class="btn-sm" id="png" disabled>↓ PNG</button>
-        <button class="btn-save" id="cleanKaydet" disabled>↑ Kaydet</button>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn-icon ok" id="dl" disabled>↓ SVG</button>
+        <button class="btn-icon ok" id="png" disabled>↓ PNG</button>
+        <button class="btn-icon accent" id="cleanKaydet" disabled>↑ Kaydet</button>
       </div>
       <div class="err-box" id="err"></div>
     </div>
@@ -267,100 +586,135 @@
   <!-- STENCİL YAZI -->
   <div class="sb-sec" id="sec-text">
     <div class="sb-sec-head" onclick="toggleSec('text')">
-      Stencil Yazı <span class="arr">▼</span>
+      <div class="sh-left">
+        <div class="sec-icon">T</div>
+        Stencil Yazı
+      </div>
+      <span class="arr">▼</span>
     </div>
     <div class="sb-sec-body">
       <div class="field">
-        <label>metin</label>
+        <label>Metin</label>
         <input type="text" id="txt" value="250TH ANNIVERSARY">
       </div>
       <div class="field">
-        <label>mod</label>
+        <label>Mod</label>
         <div class="seg">
           <button class="seg-btn active" data-tmode="knockout">Oyuk</button>
           <button class="seg-btn" data-tmode="solid">Dolu</button>
         </div>
       </div>
       <div class="field">
-        <label>font</label>
+        <label>Font</label>
         <select id="tfont">
           <option value="stardos">Stardos</option>
           <option value="saira" selected>Saira</option>
           <option value="allerta">Allerta</option>
         </select>
       </div>
-      <div class="field"><label>boyut</label><input type="number" id="tsize" value="120" min="20" max="400" step="10"></div>
-      <div class="field"><label>harf aralığı</label><input type="number" id="tls" value="6" min="0" max="60"></div>
-      <div class="field"><label>köşe yuvarlak</label><input type="number" id="trad" value="20" min="0" max="120"></div>
-      <div class="field"><label>iç boşluk</label><input type="number" id="tpad" value="40" min="0" max="160"></div>
-      <div class="field"><label>kavis · <span id="tcVal">0</span>°</label>
-        <input type="range" id="tc" min="-80" max="80" value="0"></div>
-      <button class="btn-go" id="tgo">Oluştur</button>
+      <div class="field">
+        <label>Boyut</label>
+        <input type="number" id="tsize" value="120" min="20" max="400" step="10">
+      </div>
+      <div class="field">
+        <label>Harf Aralığı</label>
+        <input type="number" id="tls" value="6" min="0" max="60">
+      </div>
+      <div class="field">
+        <label>Köşe Yuvarlak</label>
+        <input type="number" id="trad" value="20" min="0" max="120">
+      </div>
+      <div class="field">
+        <label>İç Boşluk</label>
+        <input type="number" id="tpad" value="40" min="0" max="160">
+      </div>
+      <div class="field">
+        <label>Kavis <span class="val" id="tcVal">0</span>°</label>
+        <input type="range" id="tc" min="-80" max="80" value="0">
+      </div>
+      <button class="btn-primary" id="tgo">Oluştur</button>
       <div class="btn-row">
-        <button class="btn-sm" id="tdlsvg" disabled>↓ SVG</button>
-        <button class="btn-sm" id="tdlpng" disabled>↓ PNG</button>
+        <button class="btn-icon ok" id="tdlsvg" disabled>↓ SVG</button>
+        <button class="btn-icon ok" id="tdlpng" disabled>↓ PNG</button>
       </div>
       <div class="err-box" id="terr"></div>
     </div>
   </div>
 
-  <!-- BİRLEŞTİR -->
+  <!-- YAZI YERLEŞTİR -->
   <div class="sb-sec" id="sec-compose">
     <div class="sb-sec-head" onclick="toggleSec('compose')">
-      Yazı Yerleştir <span class="arr">▼</span>
+      <div class="sh-left">
+        <div class="sec-icon">⊞</div>
+        Yazı Yerleştir
+      </div>
+      <span class="arr">▼</span>
     </div>
     <div class="sb-sec-body">
       <div id="cno-base" style="color:var(--muted);font-size:11px;margin-bottom:10px">Önce bir SVG yükleyin.</div>
       <div id="ccontrols" style="display:none">
         <div class="chips-row" id="clayers"></div>
         <div style="display:flex;gap:6px;margin-bottom:12px">
-          <button class="btn-sm" id="caddlayer">+ Yazı ekle</button>
-          <button class="btn-danger" id="cdellayer">Sil</button>
+          <button class="btn-icon ok" id="caddlayer">+ Yazı ekle</button>
+          <button class="btn-icon danger" id="cdellayer">Sil</button>
         </div>
         <div class="field">
-          <label>yazı</label>
+          <label>Yazı</label>
           <input type="text" id="ctxt" value="250TH ANNIVERSARY">
         </div>
         <div class="field">
-          <label>mod</label>
+          <label>Mod</label>
           <div class="seg">
             <button class="seg-btn active" data-cmode="solid">Dolu</button>
             <button class="seg-btn" data-cmode="knockout">Oyuk</button>
           </div>
         </div>
         <div class="field">
-          <label>renk</label>
+          <label>Renk</label>
           <div style="display:flex;gap:6px;align-items:center">
-            <input type="color" id="ccolor" value="#000000" style="width:32px;height:30px;padding:2px;background:var(--bg2);border:1px solid var(--line);border-radius:3px;cursor:pointer">
+            <input type="color" id="ccolor" value="#000000" style="width:32px;height:30px;padding:2px;background:var(--bg);border:1px solid var(--line2);border-radius:7px;cursor:pointer">
             <button class="seg-btn active" data-ccolor="#000000" style="width:30px;padding:5px 0">■</button>
             <button class="seg-btn" data-ccolor="#ffffff" style="width:30px;padding:5px 0;color:#fff;background:var(--muted)">□</button>
           </div>
         </div>
         <div class="field">
-          <label>font</label>
+          <label>Font</label>
           <select id="cfont">
             <option value="stardos">Stardos</option>
             <option value="saira" selected>Saira</option>
             <option value="allerta">Allerta</option>
           </select>
         </div>
-        <div class="field"><label>genişlik · <span id="cwVal">45</span>%</label>
-          <input type="range" id="cw" min="10" max="100" value="45"></div>
-        <div class="field"><label>döndür · <span id="crVal">0</span>°</label>
-          <input type="range" id="cr" min="-30" max="30" value="0"></div>
-        <div class="field"><label>kavis · <span id="ccVal">0</span>°</label>
-          <input type="range" id="cc" min="-80" max="80" value="0"></div>
-        <div class="field"><label>yükseklik · <span id="cvVal">1.0</span>x</label>
-          <input type="range" id="cv" min="0.5" max="3.0" value="1.0" step="0.1"></div>
-        <div class="field"><label>harf aralığı · <span id="clsVal">6</span></label>
-          <input type="range" id="cls" min="-4" max="30" value="6" step="1"></div>
-        <label class="chk"><input type="checkbox" id="cbridge"> birleştir + köprüle</label>
-        <div class="btn-row">
-          <button class="btn-sm" id="cdlsvg">↓ SVG</button>
-          <button class="btn-sm" id="cdlpng">↓ PNG</button>
-          <button class="btn-save" id="composeKaydet">↑ Kaydet</button>
+        <div class="field">
+          <label>Genişlik <span class="val" id="cwVal">45</span>%</label>
+          <input type="range" id="cw" min="10" max="100" value="45">
         </div>
-        <p style="color:var(--muted);font-size:10px;margin-top:8px">Önizlemede yazıyı sürükle; kontroller seçili katmanı ayarlar.</p>
+        <div class="field">
+          <label>Döndür <span class="val" id="crVal">0</span>°</label>
+          <input type="range" id="cr" min="-30" max="30" value="0">
+        </div>
+        <div class="field">
+          <label>Kavis <span class="val" id="ccVal">0</span>°</label>
+          <input type="range" id="cc" min="-80" max="80" value="0">
+        </div>
+        <div class="field">
+          <label>Yükseklik <span class="val" id="cvVal">1.0</span>x</label>
+          <input type="range" id="cv" min="0.5" max="3.0" value="1.0" step="0.1">
+        </div>
+        <div class="field">
+          <label>Harf Aralığı <span class="val" id="clsVal">6</span></label>
+          <input type="range" id="cls" min="-4" max="30" value="6" step="1">
+        </div>
+        <label class="chk-row">
+          <input type="checkbox" id="cbridge">
+          Birleştir + Köprüle
+        </label>
+        <div class="btn-row">
+          <button class="btn-icon ok" id="cdlsvg">↓ SVG</button>
+          <button class="btn-icon ok" id="cdlpng">↓ PNG</button>
+          <button class="btn-icon accent" id="composeKaydet">↑ Kaydet</button>
+        </div>
+        <p class="note">Önizlemede yazıyı sürükle; kontroller seçili katmanı ayarlar.</p>
       </div>
       <div class="err-box" id="cerr"></div>
     </div>
@@ -369,25 +723,31 @@
   <!-- ELLE KÖPRÜ -->
   <div class="sb-sec" id="sec-manual">
     <div class="sb-sec-head" onclick="toggleSec('manual')">
-      Elle Köprü <span class="arr">▼</span>
+      <div class="sh-left">
+        <div class="sec-icon">⊕</div>
+        Elle Köprü
+      </div>
+      <span class="arr">▼</span>
     </div>
     <div class="sb-sec-body">
       <div id="mno-base" style="color:var(--muted);font-size:11px;margin-bottom:10px">Önce bir SVG yükleyin.</div>
       <div id="mcontrols" style="display:none">
-        <div class="field"><label>köprü kalınlığı · <span id="mwVal">8</span></label>
-          <input type="range" id="mw" min="1" max="30" value="8" step="1"></div>
-        <div style="margin-bottom:10px">
-          <div class="n" id="mComp" style="font-family:'Anton',sans-serif;font-size:28px;line-height:1">—</div>
-          <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-top:3px">kalan parça</div>
+        <div class="field">
+          <label>Köprü Kalınlığı <span class="val" id="mwVal">8</span></label>
+          <input type="range" id="mw" min="1" max="30" value="8" step="1">
+        </div>
+        <div style="margin-bottom:12px">
+          <div class="mComp-num" id="mComp" style="color:var(--text)">—</div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-top:2px">kalan parça</div>
         </div>
         <div class="btn-row" style="flex-wrap:wrap">
-          <button class="btn-sm" id="mundo" disabled>↩ Geri al</button>
-          <button class="btn-sm" id="mclear" disabled>Temizle</button>
-          <button class="btn-sm" id="mdlsvg" disabled>↓ SVG</button>
-          <button class="btn-sm" id="mdlpng" disabled>↓ PNG</button>
-          <button class="btn-save" id="manualKaydet" disabled>↑ Kaydet</button>
+          <button class="btn-icon" id="mundo" disabled>↩ Geri al</button>
+          <button class="btn-icon" id="mclear" disabled>Temizle</button>
+          <button class="btn-icon ok" id="mdlsvg" disabled>↓ SVG</button>
+          <button class="btn-icon ok" id="mdlpng" disabled>↓ PNG</button>
+          <button class="btn-icon accent" id="manualKaydet" disabled>↑ Kaydet</button>
         </div>
-        <p style="color:var(--muted);font-size:10px;margin-top:8px">Önizlemede iki noktaya tıkla → köprü eklenir.</p>
+        <p class="note">Önizlemede iki noktaya tıkla → köprü eklenir.</p>
       </div>
       <div class="err-box" id="merr"></div>
     </div>
@@ -395,26 +755,46 @@
 
 </div><!-- /sidebar -->
 
-<!-- RIGHT MAIN AREA -->
+<!-- ══ MAIN ══ -->
 <div class="main">
 
-  <!-- Ada Temizle sonuç -->
+  <!-- Ada Temizle canvas -->
   <div class="main-sec" id="main-clean" style="display:none">
     <div class="main-sec-head">Ada Temizle / Köprüle</div>
     <div class="stats" id="stats"></div>
     <div class="compare">
-      <div class="view before">
-        <div class="head"><span>öncesi · <small style="opacity:.6">hover=zoom · işaretçiye tıkla</small></span> <b id="beforeTag">— ada</b></div>
-        <div class="canvas canvas-zoom" id="beforeCanvas">
+      <!-- before -->
+      <div class="cv-card">
+        <div class="cv-header">
+          <span class="cvh-label">Orijinal</span>
+          <span class="cvh-tag before" id="beforeTag">— ada</span>
+          <div class="cvh-zoom">
+            <button onclick="beforeZoom&&beforeZoom.out()">−</button>
+            <span class="zl" id="beforeZoomLabel">100%</span>
+            <button onclick="beforeZoom&&beforeZoom.in()">+</button>
+            <button class="z1" onclick="beforeZoom&&beforeZoom.reset()">1:1</button>
+          </div>
+        </div>
+        <div class="cv-body canvas-zoom" id="beforeCanvas">
           <div class="canvas-inner" id="beforeInner">
             <div id="beforeSvg"></div>
             <div id="markers" style="position:absolute;inset:0;pointer-events:none"></div>
           </div>
         </div>
       </div>
-      <div class="view after">
-        <div class="head"><span>sonrası · <small style="opacity:.6">hover=zoom</small></span> <b id="afterTag">temiz</b></div>
-        <div class="canvas canvas-zoom" id="afterCanvas">
+      <!-- after -->
+      <div class="cv-card">
+        <div class="cv-header">
+          <span class="cvh-label">Sonuç</span>
+          <span class="cvh-tag after" id="afterTag">temiz</span>
+          <div class="cvh-zoom">
+            <button onclick="afterZoom&&afterZoom.out()">−</button>
+            <span class="zl" id="afterZoomLabel">100%</span>
+            <button onclick="afterZoom&&afterZoom.in()">+</button>
+            <button class="z1" onclick="afterZoom&&afterZoom.reset()">1:1</button>
+          </div>
+        </div>
+        <div class="cv-body canvas-zoom" id="afterCanvas">
           <div class="canvas-inner" id="afterInner">
             <div id="afterSvg"></div>
           </div>
@@ -422,7 +802,7 @@
       </div>
     </div>
     <div class="islands" id="islandsBox" style="display:none">
-      <h3 id="islandsTitle">silinen yüzen adalar</h3>
+      <div class="islands-ttl" id="islandsTitle">bulunan yüzen adalar</div>
       <div class="ilist" id="ilist"></div>
     </div>
   </div>
@@ -430,18 +810,24 @@
   <!-- Stencil önizleme -->
   <div class="main-sec" id="main-text" style="display:none">
     <div class="main-sec-head">Stencil Yazı Önizleme</div>
-    <div class="view after">
-      <div class="head"><span>önizleme</span> <b id="ttag">tek parça</b></div>
-      <div class="canvas"><div id="tsvg"></div></div>
+    <div class="cv-card">
+      <div class="cv-header">
+        <span class="cvh-label">Önizleme</span>
+        <span class="cvh-tag after" id="ttag">tek parça</span>
+      </div>
+      <div class="cv-body"><div id="tsvg"></div></div>
     </div>
   </div>
 
-  <!-- Birleştir canvas -->
+  <!-- Yazı Yerleştir canvas -->
   <div class="main-sec" id="main-compose" style="display:none">
     <div class="main-sec-head">Yazı Yerleştir — sürükle ↔</div>
-    <div class="view after">
-      <div class="head"><span>yerleşim</span> <b>sürükle ↔</b></div>
-      <div class="canvas" style="padding:0">
+    <div class="cv-card">
+      <div class="cv-header">
+        <span class="cvh-label">Yerleşim</span>
+        <span class="cvh-tag after">sürükle ↔</span>
+      </div>
+      <div class="cv-body" style="padding:0">
         <div id="cwrap" style="position:relative;width:100%;line-height:0">
           <div id="cbase"></div>
         </div>
@@ -452,9 +838,12 @@
   <!-- Elle Köprü canvas -->
   <div class="main-sec" id="main-manual" style="display:none">
     <div class="main-sec-head">Elle Köprü — <span id="mStatus">SVG yükleyin</span></div>
-    <div class="view after">
-      <div class="head"><span>köprü yerleştir</span> <b id="mStatusHead">tıkla</b></div>
-      <div class="canvas" style="padding:0">
+    <div class="cv-card">
+      <div class="cv-header">
+        <span class="cvh-label">Köprü Yerleştir</span>
+        <span class="cvh-tag after" id="mStatusHead">tıkla</span>
+      </div>
+      <div class="cv-body" style="padding:0">
         <div id="mwrap" style="position:relative;width:100%;line-height:0;cursor:crosshair">
           <div id="mbase"></div>
           <div id="mmarkers" style="position:absolute;inset:0;pointer-events:none"></div>
@@ -463,520 +852,631 @@
     </div>
   </div>
 
-  <!-- Boş durum -->
+  <!-- Empty state -->
   <div class="empty-state" id="empty-state">
-    SVG yükleyerek başlayın →
+    <div class="es-icon">◎</div>
+    <h2>Başlamak için SVG yükleyin</h2>
+    <p>Soldan bir dosya seçin veya sürükleyip bırakın</p>
   </div>
 
-  <footer>
-    REST API · <code>/clean</code> · <code>/bridge</code> · <code>/svg2png</code> · <code>/text</code> · <code>/health</code>
-  </footer>
-</div>
+</div><!-- /main -->
 
 <script>
 const $ = id => document.getElementById(id);
-let svgText=null,fileName="design.svg",cleanedBlobUrl=null,cleanedText=null;
+let svgText=null, fileName="design.svg", cleanedBlobUrl=null, cleanedText=null;
 let lastSvg=null;
-let islandStates=[];       // 'delete'|'bridge'|'keep' — analiz sonrası dolu
-let analyzedReport=null;   // son analyze raporu
+let islandStates=[];
+let analyzedReport=null;
 
 /* ── accordion ── */
 function toggleSec(name){
   const head = document.querySelector(`#sec-${name} .sb-sec-head`);
   const body = document.querySelector(`#sec-${name} .sb-sec-body`);
   const isOpen = body.classList.contains('open');
-  head.classList.toggle('open',!isOpen);
-  head.classList.toggle('active',!isOpen);
-  body.classList.toggle('open',!isOpen);
+  head.classList.toggle('open', !isOpen);
+  head.classList.toggle('active', !isOpen);
+  body.classList.toggle('open', !isOpen);
   head.querySelector('.arr').textContent = isOpen ? '▼' : '▲';
-  if(!isOpen) showMainSec(name);
+  if (!isOpen) showMainSec(name);
 }
 function showMainSec(name){
-  ['clean','text','compose','manual'].forEach(n=>{
+  ['clean','text','compose','manual'].forEach(n => {
     const el = $('main-'+n);
-    if(el) el.style.display = n===name ? '' : 'none';
+    if (el) el.style.display = n===name ? '' : 'none';
   });
-  $('empty-state').style.display='none';
+  $('empty-state').style.display = 'none';
 }
 
 /* ── file drop ── */
-const drop=$('drop'),fileInput=$('file');
-drop.addEventListener('click',()=>fileInput.click());
-['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('drag')}));
-['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('drag')}));
-drop.addEventListener('drop',ev=>{if(ev.dataTransfer.files[0])loadFile(ev.dataTransfer.files[0])});
-fileInput.addEventListener('change',()=>{if(fileInput.files[0])loadFile(fileInput.files[0])});
+const drop=$('drop'), fileInput=$('file');
+drop.addEventListener('click', () => fileInput.click());
+['dragover','dragenter'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('drag'); }));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('drag'); }));
+drop.addEventListener('drop', ev => { if(ev.dataTransfer.files[0]) loadFile(ev.dataTransfer.files[0]); });
+fileInput.addEventListener('change', () => { if(fileInput.files[0]) loadFile(fileInput.files[0]); });
 
 function loadFile(f){
-  if(!/svg/i.test(f.type)&&!/\.svg$/i.test(f.name)){showErr('Lütfen bir .svg dosyası seçin.');return;}
-  fileName=f.name;
-  const r=new FileReader();
-  r.onload=()=>initAllTools(r.result,f.name);
+  if(!/svg/i.test(f.type) && !/\.svg$/i.test(f.name)){ showErr('Lütfen bir .svg dosyası seçin.'); return; }
+  fileName = f.name;
+  const r = new FileReader();
+  r.onload = () => initAllTools(r.result, f.name);
   r.readAsText(f);
 }
 
-function initAllTools(text,name){
-  svgText=text; fileName=name||'design.svg';
-  $('fname').textContent=fileName;
+function initAllTools(text, name){
+  svgText = text; fileName = name || 'design.svg';
+  $('fname').textContent = fileName;
+  const df = $('dropFname');
+  df.textContent = fileName; df.style.display = '';
 
-  // Ada Temizle — reset
-  $('go').disabled=false; hideErr();
-  renderSvg('beforeSvg',text);
-  $('markers').innerHTML=''; $('afterSvg').innerHTML='';
-  $('dl').disabled=true; $('png').disabled=true; $('cleanKaydet').disabled=true;
-  cleanedText=null; analyzedReport=null; islandStates=[];
-  $('islandCtrl').style.display='none';
-  $('main-clean').style.display='';
-  $('stats').innerHTML=''; $('islandsBox').style.display='none'; $('beforeTag').textContent='— ada';
-  $('empty-state').style.display='none';
+  // Ada Temizle reset
+  $('go').disabled = false; hideErr();
+  renderSvg('beforeSvg', text);
+  $('markers').innerHTML = ''; $('afterSvg').innerHTML = '';
+  $('dl').disabled = true; $('png').disabled = true; $('cleanKaydet').disabled = true;
+  cleanedText = null; analyzedReport = null; islandStates = [];
+  $('islandCtrl').style.display = 'none';
+  $('main-clean').style.display = '';
+  $('stats').innerHTML = ''; $('islandsBox').style.display = 'none'; $('beforeTag').textContent = '— ada';
+  $('empty-state').style.display = 'none';
 
   // Birleştir
-  cBaseText=text; cFileName=fileName;
-  $('cno-base').style.display='none'; $('ccontrols').style.display='';
-  const cel=$('cbase'); cel.innerHTML=text;
-  const csvg=cel.querySelector('svg');
-  if(csvg){csvg.removeAttribute('width');csvg.removeAttribute('height');csvg.style.width='100%';csvg.style.height='auto';csvg.style.maxHeight='none';csvg.style.display='block';}
-  if(layers.length===0) addLayer('250TH ANNIVERSARY');
-  else{renderOverlays();renderChips();}
-  $('main-compose').style.display='';
+  cBaseText = text; cFileName = fileName;
+  $('cno-base').style.display = 'none'; $('ccontrols').style.display = '';
+  const cel = $('cbase'); cel.innerHTML = text;
+  const csvg = cel.querySelector('svg');
+  if(csvg){ csvg.removeAttribute('width'); csvg.removeAttribute('height'); csvg.style.width='100%'; csvg.style.height='auto'; csvg.style.maxHeight='none'; csvg.style.display='block'; }
+  if(layers.length === 0) addLayer('250TH ANNIVERSARY');
+  else { renderOverlays(); renderChips(); }
+  $('main-compose').style.display = '';
 
   // Elle Köprü
-  mbBase=text; mbName=fileName; mbBridges=[]; mbPendingA=null;
-  $('mno-base').style.display='none'; $('mcontrols').style.display='';
-  ['mdlsvg','mdlpng','mclear','mundo','manualKaydet'].forEach(id=>$(id).disabled=false);
+  mbBase = text; mbName = fileName; mbBridges = []; mbPendingA = null;
+  $('mno-base').style.display = 'none'; $('mcontrols').style.display = '';
+  ['mdlsvg','mdlpng','mclear','mundo','manualKaydet'].forEach(id => $(id).disabled = false);
   mbRender(); mbAnalyze();
-  $('main-manual').style.display='';
+  $('main-manual').style.display = '';
 }
 
-function renderSvg(elId,text){
-  const el=$(elId); el.innerHTML=text;
-  const svg=el.querySelector('svg');
-  if(svg){svg.removeAttribute('width');svg.removeAttribute('height');}
+function renderSvg(elId, text){
+  const el = $(elId); el.innerHTML = text;
+  const svg = el.querySelector('svg');
+  if(svg){ svg.removeAttribute('width'); svg.removeAttribute('height'); }
 }
 function getViewBox(text){
-  const m=text.match(/viewBox="([^"]+)"/);
-  if(m){const p=m[1].trim().split(/[ ,]+/).map(Number);if(p.length===4)return{x:p[0],y:p[1],w:p[2],h:p[3]};}
-  const wm=text.match(/width="?([\d.]+)/),hm=text.match(/height="?([\d.]+)/);
-  return{x:0,y:0,w:wm?+wm[1]:1000,h:hm?+hm[1]:1000};
+  const m = text.match(/viewBox="([^"]+)"/);
+  if(m){ const p = m[1].trim().split(/[ ,]+/).map(Number); if(p.length===4) return {x:p[0],y:p[1],w:p[2],h:p[3]}; }
+  const wm = text.match(/width="?([\d.]+)/), hm = text.match(/height="?([\d.]+)/);
+  return { x:0, y:0, w:wm?+wm[1]:1000, h:hm?+hm[1]:1000 };
 }
 function qs(){
   return `?dark_threshold=${$('dark').value}&scale=${$('scale').value}`;
 }
-$('dark').addEventListener('input',()=>$('dtVal').textContent=$('dark').value);
-$('bw').addEventListener('input',()=>$('bwVal').textContent=$('bw').value);
+$('dark').addEventListener('input', () => $('dtVal').textContent = $('dark').value);
+$('bw').addEventListener('input', () => $('bwVal').textContent = $('bw').value);
 
-/* ── canvas hover zoom ── */
-function initCanvasZoom(canvasEl,innerId){
-  const inner=$(innerId)||canvasEl.querySelector('.canvas-inner');if(!inner)return;
-  canvasEl.addEventListener('mousemove',e=>{
-    const r=canvasEl.getBoundingClientRect();
-    const xp=((e.clientX-r.left)/r.width*100).toFixed(2);
-    const yp=((e.clientY-r.top)/r.height*100).toFixed(2);
-    inner.style.transformOrigin=`${xp}% ${yp}%`;
-    inner.style.transform='scale(2.8)';
+/* ── canvas scroll zoom + drag pan ── */
+function initScrollZoom(canvasEl, innerId, labelId) {
+  const inner = $(innerId);
+  const label = labelId ? $(labelId) : null;
+  if (!inner) return null;
+  let zoom=1, tx=0, ty=0;
+  let dragging=false, dsx=0, dsy=0, dtx=0, dty=0;
+
+  function apply() {
+    if (label) label.textContent = Math.round(zoom * 100) + '%';
+    if (zoom === 1) {
+      inner.style.transform = '';
+      inner.style.transformOrigin = '';
+      canvasEl.style.cursor = '';
+    } else {
+      inner.style.transform = `translate(${tx}px,${ty}px) scale(${zoom})`;
+      inner.style.transformOrigin = '0 0';
+      canvasEl.style.cursor = dragging ? 'grabbing' : 'grab';
+    }
+  }
+
+  canvasEl.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = canvasEl.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const f = e.deltaY < 0 ? 1.2 : 1/1.2;
+    const nz = Math.max(1, Math.min(10, zoom * f));
+    if (nz === zoom) return;
+    tx = mx - (mx - tx) * (nz / zoom);
+    ty = my - (my - ty) * (nz / zoom);
+    zoom = nz;
+    if (zoom === 1) { tx=0; ty=0; }
+    apply();
+  }, { passive: false });
+
+  canvasEl.addEventListener('mousedown', e => {
+    if (zoom <= 1) return;
+    if (e.target.closest('.imark')) return;
+    dragging=true; dsx=e.clientX; dsy=e.clientY; dtx=tx; dty=ty;
+    canvasEl.style.cursor = 'grabbing';
+    e.preventDefault();
   });
-  canvasEl.addEventListener('mouseleave',()=>{
-    inner.style.transition='transform 0.18s ease';
-    inner.style.transform='';
-    setTimeout(()=>{inner.style.transition='';},220);
+
+  const onMove = e => {
+    if (!dragging) return;
+    tx = dtx + (e.clientX - dsx);
+    ty = dty + (e.clientY - dsy);
+    apply();
+  };
+  const onUp = () => { if (!dragging) return; dragging=false; apply(); };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+
+  canvasEl.addEventListener('dblclick', e => {
+    if (e.target.closest('.imark')) return;
+    zoom=1; tx=0; ty=0; apply();
   });
+
+  const ctrl = {
+    in()  { zoom = Math.min(10, zoom * 1.3); apply(); },
+    out() { const nz = Math.max(1, zoom / 1.3); zoom=nz; if(zoom===1){tx=0;ty=0;} apply(); },
+    reset() { zoom=1; tx=0; ty=0; apply(); }
+  };
+  apply();
+  return ctrl;
 }
-initCanvasZoom($('beforeCanvas'),'beforeInner');
-initCanvasZoom($('afterCanvas'),'afterInner');
+
+let beforeZoom, afterZoom;
+beforeZoom = initScrollZoom($('beforeCanvas'), 'beforeInner', 'beforeZoomLabel');
+afterZoom  = initScrollZoom($('afterCanvas'),  'afterInner',  'afterZoomLabel');
 
 /* ── ada analiz ── */
-$('go').addEventListener('click',async()=>{
-  if(!svgText)return;
-  const go=$('go');go.disabled=true;go.innerHTML='<span class="spin"></span>Analiz';
+$('go').addEventListener('click', async () => {
+  if (!svgText) return;
+  const go = $('go'); go.disabled=true; go.innerHTML='<span class="spin"></span>Analiz Ediliyor';
   hideErr(); showMainSec('clean');
-  try{
-    const fd=new FormData();fd.append('file',new Blob([svgText],{type:'image/svg+xml'}),fileName);
-    const res=await fetch('/analyze'+qs(),{method:'POST',body:fd});
-    if(!res.ok)throw new Error((await res.json()).detail||'analiz hatası');
-    const rep=await res.json();
-    analyzedReport=rep;
-    islandStates=rep.removed.map(()=>'delete'); // varsayılan: hepsini sil
-    showStats(rep); drawMarkers(rep);
-    $('islandCtrl').style.display=rep.removed.length?'':'none';
-    $('beforeTag').textContent=rep.removed_count+' ada';
-  }catch(e){showErr(e.message);}
-  finally{go.disabled=false;go.textContent='Analiz Et';}
+  try {
+    const fd = new FormData();
+    fd.append('file', new Blob([svgText],{type:'image/svg+xml'}), fileName);
+    const res = await fetch('/analyze'+qs(), {method:'POST', body:fd});
+    if (!res.ok) throw new Error((await res.json()).detail || 'analiz hatası');
+    const rep = await res.json();
+    analyzedReport = rep;
+    islandStates = rep.removed.map(() => 'delete');
+    showStats(rep);
+    drawMarkers(rep);
+    $('islandCtrl').style.display = rep.removed.length ? '' : 'none';
+    $('beforeTag').textContent = rep.removed_count + ' ada';
+  } catch(e) { showErr(e.message); }
+  finally { go.disabled=false; go.textContent='Analiz Et'; }
 });
 
-/* ── seçimi toplu değiştir ── */
-$('allDel').addEventListener('click',()=>{islandStates=islandStates.map(()=>'delete');refreshMarkers();});
-$('allBr').addEventListener('click',()=>{islandStates=islandStates.map(()=>'bridge');refreshMarkers();});
-$('allKeep').addEventListener('click',()=>{islandStates=islandStates.map(()=>'keep');refreshMarkers();});
+/* ── toplu seçim ── */
+$('allDel').addEventListener('click',  () => { islandStates = islandStates.map(() => 'delete');  refreshMarkers(); });
+$('allBr').addEventListener('click',   () => { islandStates = islandStates.map(() => 'bridge');  refreshMarkers(); });
+$('allKeep').addEventListener('click', () => { islandStates = islandStates.map(() => 'keep');    refreshMarkers(); });
 
 /* ── uygula seçimi ── */
-$('applyBtn').addEventListener('click',async()=>{
-  if(!svgText||!analyzedReport)return;
-  const btn=$('applyBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>İşleniyor';
+$('applyBtn').addEventListener('click', async () => {
+  if (!svgText || !analyzedReport) return;
+  const btn = $('applyBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>İşleniyor';
   hideErr();
-  try{
-    const delIdx=islandStates.map((s,i)=>s==='delete'?i:-1).filter(i=>i>=0);
-    const brIdx=islandStates.map((s,i)=>s==='bridge'?i:-1).filter(i=>i>=0);
+  try {
+    const delIdx = islandStates.map((s,i) => s==='delete' ? i : -1).filter(i => i>=0);
+    const brIdx  = islandStates.map((s,i) => s==='bridge' ? i : -1).filter(i => i>=0);
     let cleaned;
-    if(delIdx.length===0&&brIdx.length===0){
-      cleaned=svgText;
-    }else{
-      const fd=new FormData();
-      fd.append('file',new Blob([svgText],{type:'image/svg+xml'}),fileName);
-      fd.append('delete_indices',JSON.stringify(delIdx));
-      fd.append('bridge_indices',JSON.stringify(brIdx));
-      fd.append('dark_threshold',$('dark').value);
-      fd.append('scale',$('scale').value);
-      fd.append('bridge_width',$('bw').value);
-      const res=await fetch('/selective',{method:'POST',body:fd});
-      if(!res.ok)throw new Error((await res.json()).detail||'işlem hatası');
-      cleaned=await res.text();
+    if (delIdx.length===0 && brIdx.length===0) {
+      cleaned = svgText;
+    } else {
+      const fd = new FormData();
+      fd.append('file', new Blob([svgText],{type:'image/svg+xml'}), fileName);
+      fd.append('delete_indices', JSON.stringify(delIdx));
+      fd.append('bridge_indices', JSON.stringify(brIdx));
+      fd.append('dark_threshold', $('dark').value);
+      fd.append('scale', $('scale').value);
+      fd.append('bridge_width', $('bw').value);
+      const res = await fetch('/selective', {method:'POST', body:fd});
+      if (!res.ok) throw new Error((await res.json()).detail || 'işlem hatası');
+      cleaned = await res.text();
     }
-    renderSvg('afterSvg',cleaned);
-    cleanedText=cleaned; lastSvg=cleaned;
-    if(cleanedBlobUrl)URL.revokeObjectURL(cleanedBlobUrl);
-    cleanedBlobUrl=URL.createObjectURL(new Blob([cleaned],{type:'image/svg+xml'}));
-    $('dl').disabled=false;$('png').disabled=false;$('cleanKaydet').disabled=false;
-    $('afterTag').textContent='uygulandı';
-  }catch(e){showErr(e.message);}
-  finally{btn.disabled=false;btn.textContent='Uygula Seçimi';}
+    renderSvg('afterSvg', cleaned);
+    cleanedText = cleaned; lastSvg = cleaned;
+    if (cleanedBlobUrl) URL.revokeObjectURL(cleanedBlobUrl);
+    cleanedBlobUrl = URL.createObjectURL(new Blob([cleaned],{type:'image/svg+xml'}));
+    $('dl').disabled=false; $('png').disabled=false; $('cleanKaydet').disabled=false;
+    $('afterTag').textContent = 'uygulandı';
+  } catch(e) { showErr(e.message); }
+  finally { btn.disabled=false; btn.textContent='Seçimi Uygula'; }
 });
 
 /* ── istatistik ── */
 function showStats(rep){
-  $('stats').innerHTML=`
-    <div class="stat"><div class="n">${rep.components_before}</div><div class="l">başlangıç parça</div></div>
-    <div class="stat danger"><div class="n">${rep.removed_count}</div><div class="l">bulunan ada</div></div>
-    <div class="stat ok"><div class="n">${rep.components_after||'—'}</div><div class="l">kalan parça</div></div>`;
-  if(rep.removed.length){
-    $('islandsBox').style.display='block';
-    $('islandsTitle').textContent='bulunan yüzen adalar';
-    $('ilist').innerHTML=rep.removed.map((r,i)=>
+  $('stats').innerHTML = `
+    <div class="stat"><div class="n">${rep.components_before}</div><div class="l">Başlangıç Parça</div></div>
+    <div class="stat danger"><div class="n">${rep.removed_count}</div><div class="l">Bulunan Ada</div></div>
+    <div class="stat ok"><div class="n">${rep.components_after||'—'}</div><div class="l">Kalan Parça</div></div>`;
+  if (rep.removed.length) {
+    $('islandsBox').style.display = 'block';
+    $('islandsTitle').textContent = 'Bulunan Yüzen Adalar';
+    $('ilist').innerHTML = rep.removed.map((r,i) =>
       `<div class="icard"><b>#${i+1}</b> · ${r.area_pt2} pt²<br>${r.w}×${r.h}</div>`).join('');
-  }else $('islandsBox').style.display='none';
+  } else $('islandsBox').style.display = 'none';
 }
 
 /* ── interaktif işaretçiler ── */
-const S_CYCLE=['delete','bridge','keep'];
-const S_ICO={delete:'✕',bridge:'⟷',keep:'✓'};
+const S_CYCLE = ['delete','bridge','keep'];
+const S_ICO   = { delete:'✕', bridge:'⟷', keep:'✓' };
+const S_LBL   = { delete:'✕ Sil', bridge:'⟷ Köprüle', keep:'✓ Tut' };
 
 function drawMarkers(rep){
-  const vb=getViewBox(svgText);
-  const layer=$('markers');layer.innerHTML='';
-  layer.style.pointerEvents='auto';
-  rep.removed.forEach((r,i)=>{
-    const cx=((r.x0+r.x1)/2-vb.x)/vb.w*100;
-    const cy=((r.y0+r.y1)/2-vb.y)/vb.h*100;
-    const m=document.createElement('button');
-    m.className='imark';
-    m.style.left=cx+'%'; m.style.top=cy+'%';
-    m.dataset.idx=i; m.dataset.s=islandStates[i]||'delete';
-    m.innerHTML=`<span class="mnum">${i+1}</span><span class="mico">${S_ICO[m.dataset.s]}</span>`;
-    m.title=`Ada #${i+1} · ${r.area_pt2}pt² · tıkla: sil→köprüle→tut`;
-    m.addEventListener('click',e=>{
+  const vb = getViewBox(svgText);
+  const layer = $('markers'); layer.innerHTML = '';
+  layer.style.pointerEvents = 'auto';
+  rep.removed.forEach((r,i) => {
+    const cx = ((r.x0+r.x1)/2 - vb.x) / vb.w * 100;
+    const cy = ((r.y0+r.y1)/2 - vb.y) / vb.h * 100;
+    const m = document.createElement('button');
+    m.className = 'imark';
+    m.style.left = cx+'%'; m.style.top = cy+'%';
+    m.dataset.idx = i; m.dataset.s = islandStates[i] || 'delete';
+    m.innerHTML = `<span class="mnum">${i+1}</span><span class="mico">${S_ICO[m.dataset.s]}</span>`;
+    m.title = `Ada #${i+1} · ${r.area_pt2}pt² · tıkla: sil→köprüle→tut`;
+    m.addEventListener('click', e => {
       e.stopPropagation();
-      const cur=S_CYCLE.indexOf(islandStates[i]);
-      islandStates[i]=S_CYCLE[(cur+1)%3];
-      m.dataset.s=islandStates[i];
-      m.querySelector('.mico').textContent=S_ICO[islandStates[i]];
+      const cur = S_CYCLE.indexOf(islandStates[i]);
+      islandStates[i] = S_CYCLE[(cur+1)%3];
+      m.dataset.s = islandStates[i];
+      m.querySelector('.mico').textContent = S_ICO[islandStates[i]];
+      syncIslandRow(i);
     });
     layer.appendChild(m);
   });
+  populateIslandRows(rep);
 }
 
 function refreshMarkers(){
-  $('markers').querySelectorAll('.imark').forEach(m=>{
-    const i=parseInt(m.dataset.idx);
-    m.dataset.s=islandStates[i];
-    m.querySelector('.mico').textContent=S_ICO[islandStates[i]];
+  $('markers').querySelectorAll('.imark').forEach(m => {
+    const i = parseInt(m.dataset.idx);
+    m.dataset.s = islandStates[i];
+    m.querySelector('.mico').textContent = S_ICO[islandStates[i]];
+  });
+  $('islandRows').querySelectorAll('.irow-stbtn').forEach(btn => {
+    const i = parseInt(btn.dataset.idx);
+    btn.dataset.s = islandStates[i];
+    btn.textContent = S_LBL[islandStates[i]];
   });
 }
 
-$('dl').addEventListener('click',()=>{
-  if(!cleanedBlobUrl)return;
-  const a=document.createElement('a');a.href=cleanedBlobUrl;
-  a.download=fileName.replace(/\.svg$/i,'')+'_islenmis.svg';a.click();
+function syncIslandRow(i){
+  const btn = $('islandRows').querySelector(`.irow-stbtn[data-idx="${i}"]`);
+  if (btn) { btn.dataset.s = islandStates[i]; btn.textContent = S_LBL[islandStates[i]]; }
+}
+
+function populateIslandRows(rep){
+  const list = $('islandRows'); list.innerHTML = '';
+  rep.removed.forEach((r,i) => {
+    const row = document.createElement('div');
+    row.className = 'irow';
+
+    const num = document.createElement('div');
+    num.className = 'irow-num';
+    num.textContent = i+1;
+
+    const info = document.createElement('div');
+    info.className = 'irow-info';
+    info.innerHTML = `<div class="irow-size">${r.area_pt2}pt² · ${r.w}×${r.h}</div>`;
+
+    const stBtn = document.createElement('button');
+    stBtn.className = 'irow-stbtn';
+    stBtn.dataset.idx = i;
+    stBtn.dataset.s = islandStates[i] || 'delete';
+    stBtn.textContent = S_LBL[stBtn.dataset.s];
+    stBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const cur = S_CYCLE.indexOf(islandStates[i]);
+      islandStates[i] = S_CYCLE[(cur+1)%3];
+      stBtn.dataset.s = islandStates[i];
+      stBtn.textContent = S_LBL[islandStates[i]];
+      const marker = $('markers').querySelector(`.imark[data-idx="${i}"]`);
+      if (marker) {
+        marker.dataset.s = islandStates[i];
+        marker.querySelector('.mico').textContent = S_ICO[islandStates[i]];
+      }
+    });
+
+    row.appendChild(num); row.appendChild(info); row.appendChild(stBtn);
+    list.appendChild(row);
+  });
+}
+
+/* ── download ── */
+$('dl').addEventListener('click', () => {
+  if (!cleanedBlobUrl) return;
+  const a = document.createElement('a'); a.href = cleanedBlobUrl;
+  a.download = fileName.replace(/\.svg$/i,'') + '_islenmis.svg'; a.click();
 });
-$('png').addEventListener('click',async()=>{
-  if(!cleanedText)return;
-  const btn=$('png'),old=btn.textContent;btn.disabled=true;btn.innerHTML='<span class="spin"></span>PNG';
-  try{
-    const bg=$('trans').checked?'none':'white';
-    const fd=new FormData();fd.append('file',new Blob([cleanedText],{type:'image/svg+xml'}),fileName);
-    const res=await fetch(`/svg2png?scale=${$('pngScale').value}&bg=${bg}&trim=true`,{method:'POST',body:fd});
-    if(!res.ok)throw new Error((await res.json()).detail||'PNG hatası');
-    const url=URL.createObjectURL(await res.blob());
-    const a=document.createElement('a');a.href=url;a.download=fileName.replace(/\.svg$/i,'')+'_islenmis.png';a.click();
+$('png').addEventListener('click', async () => {
+  if (!cleanedText) return;
+  const btn=$('png'), old=btn.textContent; btn.disabled=true; btn.innerHTML='<span class="spin"></span>PNG';
+  try {
+    const bg = $('trans').checked ? 'none' : 'white';
+    const fd = new FormData(); fd.append('file', new Blob([cleanedText],{type:'image/svg+xml'}), fileName);
+    const res = await fetch(`/svg2png?scale=${$('pngScale').value}&bg=${bg}&trim=true`, {method:'POST', body:fd});
+    if (!res.ok) throw new Error((await res.json()).detail || 'PNG hatası');
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a'); a.href=url; a.download=fileName.replace(/\.svg$/i,'')+'_islenmis.png'; a.click();
     URL.revokeObjectURL(url);
-  }catch(e){showErr(e.message);}
-  finally{btn.disabled=false;btn.textContent=old;}
+  } catch(e) { showErr(e.message); }
+  finally { btn.disabled=false; btn.textContent=old; }
 });
 
-function showErr(m){const e=$('err');e.textContent='⚠ '+m;e.style.display='block';}
-function hideErr(){$('err').style.display='none';}
+function showErr(m){ const e=$('err'); e.textContent='⚠ '+m; e.style.display='block'; }
+function hideErr(){ $('err').style.display='none'; }
 
 /* ── stencil yazı ── */
-let tMode='knockout',tSvgText=null;
-document.querySelectorAll('[data-tmode]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('[data-tmode]').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');tMode=b.dataset.tmode;
-  $('ttag').textContent=tMode==='knockout'?'tek parça':'dolu';
+let tMode='knockout', tSvgText=null;
+document.querySelectorAll('[data-tmode]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-tmode]').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); tMode = b.dataset.tmode;
+  $('ttag').textContent = tMode==='knockout' ? 'tek parça' : 'dolu';
 }));
-$('tc').addEventListener('input',()=>$('tcVal').textContent=$('tc').value);
-$('tgo').addEventListener('click',async()=>{
-  const text=$('txt').value.trim();if(!text)return;
-  const btn=$('tgo');btn.disabled=true;btn.innerHTML='<span class="spin"></span>Oluşturuluyor';
-  $('terr').style.display='none';
-  showMainSec('text');
-  try{
-    const p=new URLSearchParams({text,font:$('tfont').value,size:$('tsize').value,
-      letter_spacing:$('tls').value,mode:tMode,radius:$('trad').value,pad:$('tpad').value,curve:$('tc').value});
-    const res=await fetch('/text?'+p.toString(),{method:'POST'});
-    if(!res.ok)throw new Error((await res.json()).detail||'yazı hatası');
-    tSvgText=await res.text();
-    const el=$('tsvg');el.innerHTML=tSvgText;
-    const svg=el.querySelector('svg');if(svg){svg.removeAttribute('width');svg.removeAttribute('height');}
-    $('tdlsvg').disabled=false;$('tdlpng').disabled=false;
-  }catch(e){$('terr').textContent='⚠ '+e.message;$('terr').style.display='block';}
-  finally{btn.disabled=false;btn.textContent='Oluştur';}
+$('tc').addEventListener('input', () => $('tcVal').textContent = $('tc').value);
+$('tgo').addEventListener('click', async () => {
+  const text = $('txt').value.trim(); if (!text) return;
+  const btn=$('tgo'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Oluşturuluyor';
+  $('terr').style.display='none'; showMainSec('text');
+  try {
+    const p = new URLSearchParams({text, font:$('tfont').value, size:$('tsize').value,
+      letter_spacing:$('tls').value, mode:tMode, radius:$('trad').value, pad:$('tpad').value, curve:$('tc').value});
+    const res = await fetch('/text?'+p.toString(), {method:'POST'});
+    if (!res.ok) throw new Error((await res.json()).detail || 'yazı hatası');
+    tSvgText = await res.text();
+    const el=$('tsvg'); el.innerHTML=tSvgText;
+    const svg=el.querySelector('svg'); if(svg){svg.removeAttribute('width');svg.removeAttribute('height');}
+    $('tdlsvg').disabled=false; $('tdlpng').disabled=false;
+  } catch(e) { $('terr').textContent='⚠ '+e.message; $('terr').style.display='block'; }
+  finally { btn.disabled=false; btn.textContent='Oluştur'; }
 });
-function tFn(ext){return($('txt').value.trim().replace(/[^\w]+/g,'_').slice(0,40)||'stencil')+'.'+ext;}
-$('tdlsvg').addEventListener('click',()=>{
-  if(!tSvgText)return;
-  const url=URL.createObjectURL(new Blob([tSvgText],{type:'image/svg+xml'}));
-  const a=document.createElement('a');a.href=url;a.download=tFn('svg');a.click();URL.revokeObjectURL(url);
+function tFn(ext){ return ($('txt').value.trim().replace(/[^\w]+/g,'_').slice(0,40)||'stencil')+'.'+ext; }
+$('tdlsvg').addEventListener('click', () => {
+  if (!tSvgText) return;
+  const url = URL.createObjectURL(new Blob([tSvgText],{type:'image/svg+xml'}));
+  const a = document.createElement('a'); a.href=url; a.download=tFn('svg'); a.click(); URL.revokeObjectURL(url);
 });
-$('tdlpng').addEventListener('click',async()=>{
-  if(!tSvgText)return;
-  const btn=$('tdlpng'),old=btn.textContent;btn.disabled=true;btn.innerHTML='<span class="spin"></span>PNG';
-  try{
-    const fd=new FormData();fd.append('file',new Blob([tSvgText],{type:'image/svg+xml'}),'text.svg');
+$('tdlpng').addEventListener('click', async () => {
+  if (!tSvgText) return;
+  const btn=$('tdlpng'), old=btn.textContent; btn.disabled=true; btn.innerHTML='<span class="spin"></span>PNG';
+  try {
+    const fd=new FormData(); fd.append('file', new Blob([tSvgText],{type:'image/svg+xml'}), 'text.svg');
     const res=await fetch('/svg2png?scale=3&bg=none&trim=true',{method:'POST',body:fd});
-    if(!res.ok)throw new Error((await res.json()).detail||'PNG hatası');
+    if(!res.ok) throw new Error((await res.json()).detail||'PNG hatası');
     const url=URL.createObjectURL(await res.blob());
-    const a=document.createElement('a');a.href=url;a.download=tFn('png');a.click();URL.revokeObjectURL(url);
-  }catch(e){$('terr').textContent='⚠ '+e.message;$('terr').style.display='block';}
-  finally{btn.disabled=false;btn.textContent=old;}
+    const a=document.createElement('a'); a.href=url; a.download=tFn('png'); a.click(); URL.revokeObjectURL(url);
+  } catch(e) { $('terr').textContent='⚠ '+e.message; $('terr').style.display='block'; }
+  finally { btn.disabled=false; btn.textContent=old; }
 });
 
 /* ── birleştir ── */
-let cBaseText=null,cFileName="design.svg";
-let layers=[],selId=null,seq=0,cDeb=null;
-function cShowErr(m){const e=$('cerr');e.textContent='⚠ '+m;e.style.display='block';}
-function newLayer(text){return{id:++seq,text,font:'saira',mode:'solid',curve:0,widthPct:45,rotate:0,cxPct:50,cyPct:50,vscale:1.0,ls:4,color:'#000000',ov:null};}
+let cBaseText=null, cFileName="design.svg";
+let layers=[], selId=null, seq=0, cDeb=null;
+function cShowErr(m){ const e=$('cerr'); e.textContent='⚠ '+m; e.style.display='block'; }
+function newLayer(text){ return {id:++seq,text,font:'saira',mode:'solid',curve:0,widthPct:45,rotate:0,cxPct:50,cyPct:50,vscale:1.0,ls:4,color:'#000000',ov:null}; }
 function addLayer(text){
-  const L=newLayer(text||'YAZI');L.cyPct=20+(layers.length*18)%70;
-  layers.push(L);selId=L.id;renderOverlays();renderChips();syncControls();
+  const L=newLayer(text||'YAZI'); L.cyPct=20+(layers.length*18)%70;
+  layers.push(L); selId=L.id; renderOverlays(); renderChips(); syncControls();
 }
-function getSel(){return layers.find(l=>l.id===selId);}
+function getSel(){ return layers.find(l=>l.id===selId); }
 function renderChips(){
-  const box=$('clayers');box.innerHTML='';
+  const box=$('clayers'); box.innerHTML='';
   layers.forEach(l=>{
-    const b=document.createElement('button');b.className='lchip'+(l.id===selId?' active':'');
+    const b=document.createElement('button'); b.className='lchip'+(l.id===selId?' active':'');
     b.textContent=l.text||'(boş)';
-    b.onclick=()=>{selId=l.id;renderChips();syncControls();highlightSel();};
+    b.onclick=()=>{ selId=l.id; renderChips(); syncControls(); highlightSel(); };
     box.appendChild(b);
   });
 }
 function syncControls(){
-  const l=getSel();if(!l)return;
-  $('ctxt').value=l.text;$('cfont').value=l.font;
+  const l=getSel(); if(!l) return;
+  $('ctxt').value=l.text; $('cfont').value=l.font;
   document.querySelectorAll('[data-cmode]').forEach(x=>x.classList.toggle('active',x.dataset.cmode===l.mode));
-  $('cw').value=l.widthPct;$('cwVal').textContent=l.widthPct;
-  $('cr').value=l.rotate;$('crVal').textContent=l.rotate;
-  $('cc').value=l.curve;$('ccVal').textContent=l.curve;
-  $('cv').value=l.vscale;$('cvVal').textContent=l.vscale;
-  $('cls').value=l.ls;$('clsVal').textContent=l.ls;
+  $('cw').value=l.widthPct; $('cwVal').textContent=l.widthPct;
+  $('cr').value=l.rotate;   $('crVal').textContent=l.rotate;
+  $('cc').value=l.curve;    $('ccVal').textContent=l.curve;
+  $('cv').value=l.vscale;   $('cvVal').textContent=l.vscale;
+  $('cls').value=l.ls;      $('clsVal').textContent=l.ls;
   $('ccolor').value=l.color||'#000000';
   document.querySelectorAll('[data-ccolor]').forEach(b=>b.classList.toggle('active',b.dataset.ccolor===(l.color||'#000000')));
 }
-$('ctxt').addEventListener('input',()=>{const l=getSel();if(!l)return;l.text=$('ctxt').value;renderChips();clearTimeout(cDeb);cDeb=setTimeout(()=>updateLayerText(l),300);});
-$('cfont').addEventListener('change',()=>{const l=getSel();if(!l)return;l.font=$('cfont').value;updateLayerText(l);});
+$('ctxt').addEventListener('input',()=>{ const l=getSel(); if(!l)return; l.text=$('ctxt').value; renderChips(); clearTimeout(cDeb); cDeb=setTimeout(()=>updateLayerText(l),300); });
+$('cfont').addEventListener('change',()=>{ const l=getSel(); if(!l)return; l.font=$('cfont').value; updateLayerText(l); });
 document.querySelectorAll('[data-cmode]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('[data-cmode]').forEach(x=>x.classList.remove('active'));b.classList.add('active');
-  const l=getSel();if(!l)return;l.mode=b.dataset.cmode;updateLayerText(l);
+  document.querySelectorAll('[data-cmode]').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  const l=getSel(); if(!l)return; l.mode=b.dataset.cmode; updateLayerText(l);
 }));
-$('cw').addEventListener('input',()=>{$('cwVal').textContent=$('cw').value;const l=getSel();if(l){l.widthPct=+$('cw').value;positionOv(l);}});
-$('cr').addEventListener('input',()=>{$('crVal').textContent=$('cr').value;const l=getSel();if(l){l.rotate=+$('cr').value;positionOv(l);}});
-$('cc').addEventListener('input',()=>{$('ccVal').textContent=$('cc').value;const l=getSel();if(l){l.curve=+$('cc').value;clearTimeout(cDeb);cDeb=setTimeout(()=>updateLayerText(l),200);}});
-$('cv').addEventListener('input',()=>{$('cvVal').textContent=(+$('cv').value).toFixed(1);const l=getSel();if(l){l.vscale=+$('cv').value;clearTimeout(cDeb);cDeb=setTimeout(()=>updateLayerText(l),200);}});
-$('cls').addEventListener('input',()=>{$('clsVal').textContent=$('cls').value;const l=getSel();if(l){l.ls=+$('cls').value;clearTimeout(cDeb);cDeb=setTimeout(()=>updateLayerText(l),200);}});
-$('ccolor').addEventListener('input',()=>{const l=getSel();if(l){l.color=$('ccolor').value;document.querySelectorAll('[data-ccolor]').forEach(b=>b.classList.toggle('active',b.dataset.ccolor===l.color));clearTimeout(cDeb);cDeb=setTimeout(()=>updateLayerText(l),200);}});
-document.querySelectorAll('[data-ccolor]').forEach(b=>b.addEventListener('click',()=>{const l=getSel();if(!l)return;l.color=b.dataset.ccolor;$('ccolor').value=l.color;document.querySelectorAll('[data-ccolor]').forEach(x=>x.classList.toggle('active',x.dataset.ccolor===l.color));clearTimeout(cDeb);cDeb=setTimeout(()=>updateLayerText(l),200);}));
-$('caddlayer').addEventListener('click',()=>addLayer('YAZI'));
-$('cdellayer').addEventListener('click',()=>{
-  const l=getSel();if(!l)return;
-  if(l.ov)l.ov.remove();
+$('cw').addEventListener('input',()=>{ $('cwVal').textContent=$('cw').value; const l=getSel(); if(l){l.widthPct=+$('cw').value; positionOv(l);} });
+$('cr').addEventListener('input',()=>{ $('crVal').textContent=$('cr').value; const l=getSel(); if(l){l.rotate=+$('cr').value; positionOv(l);} });
+$('cc').addEventListener('input',()=>{ $('ccVal').textContent=$('cc').value; const l=getSel(); if(l){l.curve=+$('cc').value; clearTimeout(cDeb); cDeb=setTimeout(()=>updateLayerText(l),200);} });
+$('cv').addEventListener('input',()=>{ $('cvVal').textContent=(+$('cv').value).toFixed(1); const l=getSel(); if(l){l.vscale=+$('cv').value; clearTimeout(cDeb); cDeb=setTimeout(()=>updateLayerText(l),200);} });
+$('cls').addEventListener('input',()=>{ $('clsVal').textContent=$('cls').value; const l=getSel(); if(l){l.ls=+$('cls').value; clearTimeout(cDeb); cDeb=setTimeout(()=>updateLayerText(l),200);} });
+$('ccolor').addEventListener('input',()=>{
+  const l=getSel(); if(l){l.color=$('ccolor').value; document.querySelectorAll('[data-ccolor]').forEach(b=>b.classList.toggle('active',b.dataset.ccolor===l.color)); clearTimeout(cDeb); cDeb=setTimeout(()=>updateLayerText(l),200);}
+});
+document.querySelectorAll('[data-ccolor]').forEach(b=>b.addEventListener('click',()=>{
+  const l=getSel(); if(!l)return; l.color=b.dataset.ccolor; $('ccolor').value=l.color;
+  document.querySelectorAll('[data-ccolor]').forEach(x=>x.classList.toggle('active',x.dataset.ccolor===l.color));
+  clearTimeout(cDeb); cDeb=setTimeout(()=>updateLayerText(l),200);
+}));
+$('caddlayer').addEventListener('click', () => addLayer('YAZI'));
+$('cdellayer').addEventListener('click', () => {
+  const l=getSel(); if(!l)return;
+  if(l.ov) l.ov.remove();
   layers=layers.filter(x=>x.id!==l.id);
-  selId=layers.length?layers[layers.length-1].id:null;
-  renderChips();syncControls();highlightSel();
+  selId=layers.length ? layers[layers.length-1].id : null;
+  renderChips(); syncControls(); highlightSel();
 });
 async function updateLayerText(l){
-  if(!l)return;
-  try{
+  if (!l) return;
+  try {
     const fw=cBaseText?(l.widthPct/100*cViewBox(cBaseText)[2]).toFixed(1):'';
     const p=new URLSearchParams({text:l.text||' ',font:l.font,mode:l.mode,size:120,letter_spacing:l.ls,pad:30,radius:20,curve:l.curve,vscale:l.vscale,color:l.color||'#000000'});
-    if(fw)p.set('fit_width',fw);
+    if(fw) p.set('fit_width',fw);
     const res=await fetch('/text?'+p.toString(),{method:'POST'});
-    if(!res.ok)return;
+    if(!res.ok) return;
     const txt=await res.text();
-    if(l.ov){const h=l.ov.querySelector('.lov-svg');h.innerHTML=txt;const svg=h.querySelector('svg');if(svg){svg.removeAttribute('width');svg.removeAttribute('height');svg.style.width='100%';svg.style.height='auto';svg.style.display='block';}}
-  }catch(e){}
+    if(l.ov){ const h=l.ov.querySelector('.lov-svg'); h.innerHTML=txt; const svg=h.querySelector('svg'); if(svg){svg.removeAttribute('width');svg.removeAttribute('height');svg.style.width='100%';svg.style.height='auto';svg.style.display='block';} }
+  } catch(e){}
 }
 function renderOverlays(){
   const wrap=$('cwrap');
   layers.forEach(l=>{
     if(!l.ov){
-      const ov=document.createElement('div');ov.className='layer-ov';
+      const ov=document.createElement('div'); ov.className='layer-ov';
       ov.innerHTML='<div class="lov-svg" style="line-height:0"></div>';
-      bindDrag(ov,l);wrap.appendChild(ov);l.ov=ov;updateLayerText(l);
+      bindDrag(ov,l); wrap.appendChild(ov); l.ov=ov; updateLayerText(l);
     }
     positionOv(l);
   });
   highlightSel();
 }
-function positionOv(l){const o=l.ov;if(!o)return;o.style.left=l.cxPct+'%';o.style.top=l.cyPct+'%';o.style.width=l.widthPct+'%';o.style.transform=`translate(-50%,-50%) rotate(${l.rotate}deg)`;}
-function highlightSel(){layers.forEach(l=>{if(l.ov)l.ov.classList.toggle('sel',l.id===selId);});}
+function positionOv(l){ const o=l.ov; if(!o)return; o.style.left=l.cxPct+'%'; o.style.top=l.cyPct+'%'; o.style.width=l.widthPct+'%'; o.style.transform=`translate(-50%,-50%) rotate(${l.rotate}deg)`; }
+function highlightSel(){ layers.forEach(l=>{ if(l.ov) l.ov.classList.toggle('sel',l.id===selId); }); }
 function bindDrag(ov,l){
   let drag=false;
-  ov.addEventListener('pointerdown',e=>{selId=l.id;renderChips();syncControls();highlightSel();drag=true;ov.setPointerCapture(e.pointerId);ov.style.cursor='grabbing';e.preventDefault();});
-  ov.addEventListener('pointermove',e=>{if(!drag)return;const w=$('cwrap').getBoundingClientRect();l.cxPct=Math.max(0,Math.min(100,(e.clientX-w.left)/w.width*100));l.cyPct=Math.max(0,Math.min(100,(e.clientY-w.top)/w.height*100));positionOv(l);});
-  ov.addEventListener('pointerup',()=>{drag=false;ov.style.cursor='grab';});
+  ov.addEventListener('pointerdown',e=>{ selId=l.id; renderChips(); syncControls(); highlightSel(); drag=true; ov.setPointerCapture(e.pointerId); ov.style.cursor='grabbing'; e.preventDefault(); });
+  ov.addEventListener('pointermove',e=>{ if(!drag)return; const w=$('cwrap').getBoundingClientRect(); l.cxPct=Math.max(0,Math.min(100,(e.clientX-w.left)/w.width*100)); l.cyPct=Math.max(0,Math.min(100,(e.clientY-w.top)/w.height*100)); positionOv(l); });
+  ov.addEventListener('pointerup',()=>{ drag=false; ov.style.cursor='grab'; });
 }
-function cViewBox(svg){const m=svg.match(/viewBox="([^"]+)"/);if(m){const p=m[1].trim().split(/[ ,]+/).map(Number);if(p.length===4)return p;}const w=svg.match(/width="?([\d.]+)/),h=svg.match(/height="?([\d.]+)/);return[0,0,w?+w[1]:1000,h?+h[1]:1000];}
+function cViewBox(svg){ const m=svg.match(/viewBox="([^"]+)"/); if(m){const p=m[1].trim().split(/[ ,]+/).map(Number);if(p.length===4)return p;} const w=svg.match(/width="?([\d.]+)/),h=svg.match(/height="?([\d.]+)/); return[0,0,w?+w[1]:1000,h?+h[1]:1000]; }
 function cItems(){
   const [bx,by,bw,bh]=cViewBox(cBaseText);
   return layers.filter(l=>(l.text||'').trim()).map(l=>({text:l.text,font:l.font,mode:l.mode,curve:l.curve,size:120,letter_spacing:l.ls,pad:30,radius:20,vscale:l.vscale,color:l.color||'#000000',cx:(bx+l.cxPct/100*bw),cy:(by+l.cyPct/100*bh),width:(l.widthPct/100*bw),rotate:l.rotate}));
 }
 async function cCompose(){
-  const fd=new FormData();fd.append('file',new Blob([cBaseText],{type:'image/svg+xml'}),cFileName);
-  fd.append('items',JSON.stringify(cItems()));fd.append('bridge',$('cbridge').checked?'true':'false');fd.append('bridge_width','10');
+  const fd=new FormData(); fd.append('file',new Blob([cBaseText],{type:'image/svg+xml'}),cFileName);
+  fd.append('items',JSON.stringify(cItems())); fd.append('bridge',$('cbridge').checked?'true':'false'); fd.append('bridge_width','10');
   const res=await fetch('/compose_multi',{method:'POST',body:fd});
-  if(!res.ok)throw new Error((await res.json()).detail||'birleştirme hatası');
+  if(!res.ok) throw new Error((await res.json()).detail||'birleştirme hatası');
   return await res.text();
 }
-function cName(ext){return cFileName.replace(/\.svg$/i,'')+'_yazili.'+ext;}
-$('cdlsvg').addEventListener('click',async()=>{
-  if(!cBaseText)return;const b=$('cdlsvg'),old=b.textContent;b.disabled=true;b.innerHTML='<span class="spin"></span>SVG';$('cerr').style.display='none';
-  try{const m=await cCompose();lastSvg=m;const u=URL.createObjectURL(new Blob([m],{type:'image/svg+xml'}));const a=document.createElement('a');a.href=u;a.download=cName('svg');a.click();URL.revokeObjectURL(u);}
-  catch(e){cShowErr(e.message);}finally{b.disabled=false;b.textContent=old;}
+function cName(ext){ return cFileName.replace(/\.svg$/i,'')+'_yazili.'+ext; }
+$('cdlsvg').addEventListener('click', async()=>{
+  if(!cBaseText)return; const b=$('cdlsvg'),old=b.textContent; b.disabled=true; b.innerHTML='<span class="spin"></span>SVG'; $('cerr').style.display='none';
+  try{ const m=await cCompose(); lastSvg=m; const u=URL.createObjectURL(new Blob([m],{type:'image/svg+xml'})); const a=document.createElement('a'); a.href=u; a.download=cName('svg'); a.click(); URL.revokeObjectURL(u); }
+  catch(e){ cShowErr(e.message); } finally{ b.disabled=false; b.textContent=old; }
 });
-$('cdlpng').addEventListener('click',async()=>{
-  if(!cBaseText)return;const b=$('cdlpng'),old=b.textContent;b.disabled=true;b.innerHTML='<span class="spin"></span>PNG';$('cerr').style.display='none';
-  try{const m=await cCompose();lastSvg=m;const fd=new FormData();fd.append('file',new Blob([m],{type:'image/svg+xml'}),'m.svg');
+$('cdlpng').addEventListener('click', async()=>{
+  if(!cBaseText)return; const b=$('cdlpng'),old=b.textContent; b.disabled=true; b.innerHTML='<span class="spin"></span>PNG'; $('cerr').style.display='none';
+  try{
+    const m=await cCompose(); lastSvg=m; const fd=new FormData(); fd.append('file',new Blob([m],{type:'image/svg+xml'}),'m.svg');
     const res=await fetch('/svg2png?scale=3&bg=none&trim=true',{method:'POST',body:fd});
-    if(!res.ok)throw new Error((await res.json()).detail||'PNG hatası');
-    const u=URL.createObjectURL(await res.blob());const a=document.createElement('a');a.href=u;a.download=cName('png');a.click();URL.revokeObjectURL(u);
-  }catch(e){cShowErr(e.message);}finally{b.disabled=false;b.textContent=old;}
+    if(!res.ok) throw new Error((await res.json()).detail||'PNG hatası');
+    const u=URL.createObjectURL(await res.blob()); const a=document.createElement('a'); a.href=u; a.download=cName('png'); a.click(); URL.revokeObjectURL(u);
+  } catch(e){ cShowErr(e.message); } finally{ b.disabled=false; b.textContent=old; }
 });
 
 /* ── elle köprü ── */
-let mbBase=null,mbName='design.svg',mbBridges=[],mbPendingA=null,mbDeb=null;
-$('mw').addEventListener('input',()=>{$('mwVal').textContent=$('mw').value;mbRender();});
-function mbErr(m){const e=$('merr');e.textContent='⚠ '+m;e.style.display='block';}
-function mbVB(svg){const m=svg.match(/viewBox="([^"]+)"/);if(m){const p=m[1].trim().split(/[ ,]+/).map(Number);if(p.length===4)return p;}const w=svg.match(/width="?([\d.]+)/),h=svg.match(/height="?([\d.]+)/);return[0,0,w?+w[1]:1000,h?+h[1]:1000];}
+let mbBase=null, mbName='design.svg', mbBridges=[], mbPendingA=null, mbDeb=null;
+$('mw').addEventListener('input', () => { $('mwVal').textContent=$('mw').value; mbRender(); });
+function mbErr(m){ const e=$('merr'); e.textContent='⚠ '+m; e.style.display='block'; }
+function mbVB(svg){ const m=svg.match(/viewBox="([^"]+)"/); if(m){const p=m[1].trim().split(/[ ,]+/).map(Number);if(p.length===4)return p;} const w=svg.match(/width="?([\d.]+)/),h=svg.match(/height="?([\d.]+)/); return[0,0,w?+w[1]:1000,h?+h[1]:1000]; }
 function mbWorkingSVG(){
-  if(!mbBase)return'';
+  if(!mbBase) return '';
   const w=$('mw').value;
   const segs=mbBridges.map(b=>`<line x1="${b.x1.toFixed(2)}" y1="${b.y1.toFixed(2)}" x2="${b.x2.toFixed(2)}" y2="${b.y2.toFixed(2)}" stroke="#000000" stroke-width="${w}" stroke-linecap="square"/>`).join('');
-  const i=mbBase.lastIndexOf('</svg>');return mbBase.slice(0,i)+segs+mbBase.slice(i);
+  const i=mbBase.lastIndexOf('</svg>'); return mbBase.slice(0,i)+segs+mbBase.slice(i);
 }
 function mbRender(){
-  const el=$('mbase');el.innerHTML=mbWorkingSVG();
+  const el=$('mbase'); el.innerHTML=mbWorkingSVG();
   const svg=el.querySelector('svg');
-  if(svg){svg.removeAttribute('width');svg.removeAttribute('height');svg.style.display='block';svg.style.margin='0 auto';svg.style.width='auto';svg.style.height='auto';svg.style.maxWidth='100%';svg.style.maxHeight='70vh';}
+  if(svg){ svg.removeAttribute('width'); svg.removeAttribute('height'); svg.style.display='block'; svg.style.margin='0 auto'; svg.style.width='auto'; svg.style.height='auto'; svg.style.maxWidth='100%'; svg.style.maxHeight='70vh'; }
 }
 async function mbAnalyze(){
-  if(!mbBase)return;
-  try{
-    const fd=new FormData();fd.append('file',new Blob([mbWorkingSVG()],{type:'image/svg+xml'}),mbName);
+  if(!mbBase) return;
+  try {
+    const fd=new FormData(); fd.append('file',new Blob([mbWorkingSVG()],{type:'image/svg+xml'}),mbName);
     const res=await fetch('/analyze?dark_threshold=110&scale=2',{method:'POST',body:fd});
-    if(!res.ok)return;
+    if(!res.ok) return;
     const rep=await res.json();
     mbDrawIslands(rep.removed);
     $('mComp').textContent=rep.components_after;
     $('mComp').style.color=rep.components_after<=1?'var(--ok)':'var(--danger)';
     const st=rep.components_after<=1?'tek parça ✓':(rep.removed_count+' ada kaldı');
     $('mStatusHead').textContent=st;
-  }catch(e){}
+  } catch(e){}
 }
 function mbDrawIslands(islands){
-  const svg=$('mbase').querySelector('svg');const wrap=$('mwrap');const layer=$('mmarkers');layer.innerHTML='';
-  if(!svg)return;
-  const sr=svg.getBoundingClientRect(),wr=wrap.getBoundingClientRect();
-  const offX=sr.left-wr.left,offY=sr.top-wr.top,sw=sr.width,sh=sr.height;
+  const svg=$('mbase').querySelector('svg'); const wrap=$('mwrap'); const layer=$('mmarkers'); layer.innerHTML='';
+  if(!svg) return;
+  const sr=svg.getBoundingClientRect(), wr=wrap.getBoundingClientRect();
+  const offX=sr.left-wr.left, offY=sr.top-wr.top, sw=sr.width, sh=sr.height;
   const [bx,by,bw,bh]=mbVB(mbBase);
   (islands||[]).forEach(r=>{
-    const cxv=((r.x0+r.x1)/2-bx)/bw,cyv=((r.y0+r.y1)/2-by)/bh;
-    const d=document.createElement('div');d.className='mb-island';
-    d.style.left=(offX+cxv*sw)+'px';d.style.top=(offY+cyv*sh)+'px';
-    d.style.width=(Math.max((r.x1-r.x0)/bw*sw,8)+8)+'px';d.style.height=(Math.max((r.y1-r.y0)/bh*sh,8)+8)+'px';
+    const cxv=((r.x0+r.x1)/2-bx)/bw, cyv=((r.y0+r.y1)/2-by)/bh;
+    const d=document.createElement('div'); d.className='mb-island';
+    d.style.left=(offX+cxv*sw)+'px'; d.style.top=(offY+cyv*sh)+'px';
+    d.style.width=(Math.max((r.x1-r.x0)/bw*sw,8)+8)+'px'; d.style.height=(Math.max((r.y1-r.y0)/bh*sh,8)+8)+'px';
     layer.appendChild(d);
   });
   if(mbPendingA){
-    const dot=document.createElement('div');dot.className='mb-dot';
-    dot.style.left=(offX+((mbPendingA.x-bx)/bw)*sw)+'px';dot.style.top=(offY+((mbPendingA.y-by)/bh)*sh)+'px';
+    const dot=document.createElement('div'); dot.className='mb-dot';
+    dot.style.left=(offX+((mbPendingA.x-bx)/bw)*sw)+'px'; dot.style.top=(offY+((mbPendingA.y-by)/bh)*sh)+'px';
     layer.appendChild(dot);
   }
 }
-$('mwrap').addEventListener('click',e=>{
-  if(!mbBase)return;
-  const svg=$('mbase').querySelector('svg');if(!svg)return;
+$('mwrap').addEventListener('click', e=>{
+  if(!mbBase) return;
+  const svg=$('mbase').querySelector('svg'); if(!svg) return;
   const sr=svg.getBoundingClientRect();
-  if(e.clientX<sr.left||e.clientX>sr.right||e.clientY<sr.top||e.clientY>sr.bottom)return;
+  if(e.clientX<sr.left||e.clientX>sr.right||e.clientY<sr.top||e.clientY>sr.bottom) return;
   const [bx,by,bw,bh]=mbVB(mbBase);
-  const x=bx+(e.clientX-sr.left)/sr.width*bw,y=by+(e.clientY-sr.top)/sr.height*bh;
-  if(!mbPendingA){mbPendingA={x,y};$('mStatusHead').textContent='bitiş noktasına tıkla';mbAnalyze();}
-  else{mbBridges.push({x1:mbPendingA.x,y1:mbPendingA.y,x2:x,y2:y});mbPendingA=null;mbRender();clearTimeout(mbDeb);mbDeb=setTimeout(mbAnalyze,150);}
+  const x=bx+(e.clientX-sr.left)/sr.width*bw, y=by+(e.clientY-sr.top)/sr.height*bh;
+  if(!mbPendingA){ mbPendingA={x,y}; $('mStatusHead').textContent='Bitiş noktasına tıkla'; mbAnalyze(); }
+  else { mbBridges.push({x1:mbPendingA.x,y1:mbPendingA.y,x2:x,y2:y}); mbPendingA=null; mbRender(); clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150); }
 });
-$('mundo').addEventListener('click',()=>{if(mbPendingA){mbPendingA=null;}else{mbBridges.pop();}mbRender();mbAnalyze();});
-$('mclear').addEventListener('click',()=>{mbBridges=[];mbPendingA=null;mbRender();mbAnalyze();});
-function mbFn(ext){return mbName.replace(/\.svg$/i,'')+'_koprulu.'+ext;}
-$('mdlsvg').addEventListener('click',()=>{
-  if(!mbBase)return;const svg=mbWorkingSVG();lastSvg=svg;
-  const u=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));const a=document.createElement('a');a.href=u;a.download=mbFn('svg');a.click();URL.revokeObjectURL(u);
+$('mundo').addEventListener('click', ()=>{ if(mbPendingA){mbPendingA=null;}else{mbBridges.pop();} mbRender(); mbAnalyze(); });
+$('mclear').addEventListener('click', ()=>{ mbBridges=[]; mbPendingA=null; mbRender(); mbAnalyze(); });
+function mbFn(ext){ return mbName.replace(/\.svg$/i,'')+'_koprulu.'+ext; }
+$('mdlsvg').addEventListener('click', ()=>{
+  if(!mbBase) return; const svg=mbWorkingSVG(); lastSvg=svg;
+  const u=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'})); const a=document.createElement('a'); a.href=u; a.download=mbFn('svg'); a.click(); URL.revokeObjectURL(u);
 });
-$('mdlpng').addEventListener('click',async()=>{
-  if(!mbBase)return;const b=$('mdlpng'),old=b.textContent;b.disabled=true;b.innerHTML='<span class="spin"></span>PNG';
-  try{
-    const svg=mbWorkingSVG();const fd=new FormData();fd.append('file',new Blob([svg],{type:'image/svg+xml'}),'m.svg');
+$('mdlpng').addEventListener('click', async()=>{
+  if(!mbBase) return; const b=$('mdlpng'),old=b.textContent; b.disabled=true; b.innerHTML='<span class="spin"></span>PNG';
+  try {
+    const svg=mbWorkingSVG(); const fd=new FormData(); fd.append('file',new Blob([svg],{type:'image/svg+xml'}),'m.svg');
     const res=await fetch('/svg2png?scale=3&bg=none&trim=true',{method:'POST',body:fd});
-    if(!res.ok)throw new Error((await res.json()).detail||'PNG hatası');
-    const u=URL.createObjectURL(await res.blob());const a=document.createElement('a');a.href=u;a.download=mbFn('png');a.click();URL.revokeObjectURL(u);
-  }catch(e){mbErr(e.message);}finally{b.disabled=false;b.textContent=old;}
+    if(!res.ok) throw new Error((await res.json()).detail||'PNG hatası');
+    const u=URL.createObjectURL(await res.blob()); const a=document.createElement('a'); a.href=u; a.download=mbFn('png'); a.click(); URL.revokeObjectURL(u);
+  } catch(e){ mbErr(e.message); } finally{ b.disabled=false; b.textContent=old; }
 });
 
 /* ── kaydet butonları ── */
-async function doSave(getSvg,btn){
-  const old=btn.textContent;btn.disabled=true;btn.innerHTML='<span class="spin"></span>Kaydediliyor';
-  try{
-    const svg=typeof getSvg==='function'?await getSvg():getSvg;
-    if(!svg){alert('Kaydedilecek SVG yok.');return;}
-    lastSvg=svg;window.parent.postMessage({type:'svg-save',svg},'*');
-  }catch(e){alert('Hata: '+e.message);}
-  finally{btn.disabled=false;btn.textContent=old;}
+async function doSave(getSvg, btn){
+  const old=btn.textContent; btn.disabled=true; btn.innerHTML='<span class="spin"></span>Kaydediliyor';
+  try {
+    const svg = typeof getSvg==='function' ? await getSvg() : getSvg;
+    if (!svg){ alert('Kaydedilecek SVG yok.'); return; }
+    lastSvg=svg; window.parent.postMessage({type:'svg-save',svg},'*');
+  } catch(e){ alert('Hata: '+e.message); }
+  finally{ btn.disabled=false; btn.textContent=old; }
 }
-$('cleanKaydet').addEventListener('click',()=>doSave(cleanedText,$('cleanKaydet')));
-$('composeKaydet').addEventListener('click',()=>doSave(cCompose,$('composeKaydet')));
-$('manualKaydet').addEventListener('click',()=>doSave(mbWorkingSVG,$('manualKaydet')));
+$('cleanKaydet').addEventListener('click',   () => doSave(cleanedText,  $('cleanKaydet')));
+$('composeKaydet').addEventListener('click', () => doSave(cCompose,     $('composeKaydet')));
+$('manualKaydet').addEventListener('click',  () => doSave(mbWorkingSVG, $('manualKaydet')));
 
-/* header kaydet */
-if(window!==window.top)$('kaydet').style.display='';
-$('kaydet').addEventListener('click',()=>{
-  if(!lastSvg){alert('Önce bir işlem yapın.');return;}
-  window.parent.postMessage({type:'svg-save',svg:lastSvg},'*');
+if (window !== window.top) $('kaydet').style.display = '';
+$('kaydet').addEventListener('click', () => {
+  if (!lastSvg){ alert('Önce bir işlem yapın.'); return; }
+  window.parent.postMessage({type:'svg-save', svg:lastSvg}, '*');
 });
 
 /* ── ?svg= param ── */
 (async function(){
-  const u=new URLSearchParams(location.search).get('svg');
-  if(!u)return;
-  try{
-    const res=await fetch('/proxy?url='+encodeURIComponent(u));
-    if(!res.ok)throw new Error('proxy '+res.status);
-    const text=await res.text();
-    const name=decodeURIComponent(u.split('/').pop()||'').split('?')[0]||'design.svg';
-    initAllTools(text,/\.svg$/i.test(name)?name:'design.svg');
-  }catch(e){console.error('SVG param yüklenemedi:',e.message);}
+  const u = new URLSearchParams(location.search).get('svg');
+  if (!u) return;
+  try {
+    const res = await fetch('/proxy?url='+encodeURIComponent(u));
+    if (!res.ok) throw new Error('proxy '+res.status);
+    const text = await res.text();
+    const name = decodeURIComponent(u.split('/').pop()||'').split('?')[0] || 'design.svg';
+    initAllTools(text, /\.svg$/i.test(name) ? name : 'design.svg');
+  } catch(e){ console.error('SVG param yüklenemedi:', e.message); }
 })();
 </script>
 </body>

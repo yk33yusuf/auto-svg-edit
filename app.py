@@ -416,15 +416,83 @@ def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=8.0):
                 f'stroke="{color}" stroke-width="{bw:.2f}" stroke-linecap="square"/>')
 
 
+def _island_orient_and_width(isl_mask, scale):
+    """
+    Ada piksel maskından PCA ile yön ve doğal darbe kalınlığını hesapla.
+    Döner: (orient: 'H'|'V'|'D', stroke_svg: float)
+
+    Mantık:
+      Yatay ada  → köprü yatay, kalınlık = adanın dikey yüksekliği
+      Dikey ada  → köprü dikey, kalınlık = adanın yatay genişliği
+      Çapraz ada → kısa bounding-box kenarı = kalınlık
+    """
+    ys, xs = np.where(isl_mask)
+    if len(xs) == 0:
+        return 'H', 2.0
+
+    w_px = int(xs.max() - xs.min())
+    h_px = int(ys.max() - ys.min())
+
+    # 2×2 kovaryans → birincil özvektör (principal axis)
+    cx_m, cy_m = float(xs.mean()), float(ys.mean())
+    dx = (xs - cx_m).astype(float)
+    dy = (ys - cy_m).astype(float)
+    n = max(float(len(dx)), 1.0)
+    cxx = float(np.dot(dx, dx)) / n
+    cxy = float(np.dot(dx, dy)) / n
+    cyy = float(np.dot(dy, dy)) / n
+
+    trace = cxx + cyy
+    disc  = max(0.0, (trace * 0.5) ** 2 - (cxx * cyy - cxy * cxy))
+    l1    = trace * 0.5 + math.sqrt(disc)
+
+    if abs(cxy) > 1e-9:
+        vx, vy = cxy, l1 - cxx
+        norm = math.hypot(vx, vy)
+        if norm > 1e-9:
+            vx /= norm; vy /= norm
+        else:
+            vx, vy = 1.0, 0.0
+    elif cxx >= cyy:
+        vx, vy = 1.0, 0.0
+    else:
+        vx, vy = 0.0, 1.0
+
+    # yataydan açı: 0° = yatay, 90° = dikey
+    angle = math.degrees(math.atan2(abs(vy), abs(vx)))
+
+    if angle < 30:
+        orient     = 'H'
+        stroke_px  = h_px   # yatay çizgi → dikey kalınlığı köprüle
+    elif angle > 60:
+        orient     = 'V'
+        stroke_px  = w_px   # dikey çizgi → yatay kalınlığı köprüle
+    else:
+        orient     = 'D'
+        stroke_px  = min(w_px, h_px)
+
+    return orient, max(1.5, stroke_px / scale)
+
+
+def _orient_pool(axis_cands, orient):
+    """Köprü adaylarını ada yönüne göre önceliklendir."""
+    h = [c for c in axis_cands if c[5] == 'H']
+    v = [c for c in axis_cands if c[5] == 'V']
+    if orient == 'H':
+        return h or v or axis_cands
+    if orient == 'V':
+        return v or h or axis_cands
+    return axis_cands   # 'D': kısa olana bak
+
+
 def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
                             bridge_width=2.0, color="#000000",
                             auto_multi=True, bridges_per=150.0, max_bridges=6,
-                            min_bridge_svg=10.0):
+                            min_bridge_svg=10.0, auto_width=True):
     """
-    Yuzen adalari eksen-hizali (yatay/dikey) koprulerle ana govdeye baglar.
-    - Oncelik H/V: capraz slash yok; <rect> tab gorunumu.
-    - min_bridge_svg: minimum kopru boyu (gorunur, yapisal).
-    - Buyuk adalar auto_multi ile dagitilmis coklu kopru alir.
+    Yuzen adalari eksen-hizali koprulerle ana govdeye baglar.
+    auto_width=True (varsayılan): köprü kalınlığı adanın kendi darbe genişliğinden
+    otomatik hesaplanır; yön de adanın PCA eksenine göre seçilir.
     """
     header, W, H = extract_svg_header(content)
     gray = render_to_gray(content, W, H, scale)
@@ -443,7 +511,6 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
 
     while remaining:
         edt, edt_inds = ndimage.distance_transform_edt(~rest, return_indices=True)
-        # en yakin adayi sec
         best_l, best_d = None, np.inf
         for l in remaining:
             ys, xs = np.where(labels == l)
@@ -453,15 +520,19 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
         l = best_l
         isl = (labels == l)
 
-        # boyut -> kopru sayisi
         ys, xs = np.where(isl)
         span_svg = max(xs.max()-xs.min(), ys.max()-ys.min()) / scale
         n_br = int(np.clip(round(span_svg/bridges_per), 1, max_bridges)) if auto_multi else 1
 
-        # eksen-hizali adaylar (tercih)
-        axis_cands = _axis_bridge_candidates(isl, rest)
+        # ── Yön tespiti + kalınlık ──
+        isl_orient, auto_bw = _island_orient_and_width(isl, scale)
+        # bridge_width minimum garanti; auto tespit büyükse onu kullan
+        bw = max(auto_bw, bridge_width) if auto_width else bridge_width
 
-        # capraz fallback
+        # ── Aday köprüler ──
+        axis_cands = _axis_bridge_candidates(isl, rest)
+        pool = _orient_pool(axis_cands, isl_orient)   # yöne göre önceliklendir
+
         edge = isl & ~ndimage.binary_erosion(isl)
         if not edge.any(): edge = isl
         ey, ex = np.where(edge)
@@ -473,8 +544,7 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
             tx, ty = int(edt_inds[1][py,px]), int(edt_inds[0][py,px])
             diag_cands.append((int(d_vals[idx]), px, py, tx, ty, 'D'))
 
-        pool = axis_cands if axis_cands else diag_cands
-        fallback = diag_cands if axis_cands else []
+        fallback = diag_cands
 
         min_gap_px = max(span_svg * scale / (n_br + 1), 15)
         chosen = []
@@ -490,11 +560,12 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
 
         for c in chosen:
             gap_px, x1c, y1c, x2c, y2c, d = c
-            svg_bridges.append(_bridge_svg_elem(x1c,y1c,x2c,y2c,d,bridge_width,color,scale,min_bridge_svg))
+            svg_bridges.append(_bridge_svg_elem(x1c,y1c,x2c,y2c,d,bw,color,scale,min_bridge_svg))
             _stamp_line(rest, x1c, y1c, x2c, y2c)
             seg_report.append({"x1":round(x1c/scale,1),"y1":round(y1c/scale,1),
                                 "x2":round(x2c/scale,1),"y2":round(y2c/scale,1),
-                                "dir":d,"gap_svg":round(gap_px/scale,1)})
+                                "dir":d,"gap_svg":round(gap_px/scale,1),
+                                "bw":round(bw,2),"orient":isl_orient})
         rest = rest | isl
         remaining.remove(l)
 
@@ -504,8 +575,7 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
     _, n2 = ndimage.label(g2 < dark_threshold, structure=np.ones((3,3)))
 
     return bridged, {"components_before":int(n),"components_after":int(n2),
-                     "bridges":len(svg_bridges),"bridge_width":bridge_width,
-                     "bridge_segments":seg_report}
+                     "bridges":len(svg_bridges),"bridge_segments":seg_report}
 
 def trim_png_bytes(data, threshold=10.0, padding=0):
     """
@@ -928,8 +998,16 @@ async def selective_endpoint(
                 if lbl == 0 or lbl == main_label2:
                     continue
                 isl_mask2 = labels2 == lbl
+
+                # ── Yön + doğal kalınlık (orijinal mask daha temiz) ──
+                # bridge_width minimum garanti, auto_bw büyükse onu kullan
+                isl_orient, auto_bw = _island_orient_and_width(orig_mask, scale)
+                auto_bw = max(auto_bw, bridge_width)
+
                 edt, edt_inds = ndimage.distance_transform_edt(~rest, return_indices=True)
                 axis_cands = _axis_bridge_candidates(isl_mask2, rest)
+                pool = _orient_pool(axis_cands, isl_orient)
+
                 edge = isl_mask2 & ~ndimage.binary_erosion(isl_mask2)
                 if not edge.any():
                     edge = isl_mask2
@@ -941,16 +1019,16 @@ async def selective_endpoint(
                     px, py = int(ex[idx]), int(ey[idx])
                     tx, ty = int(edt_inds[1][py, px]), int(edt_inds[0][py, px])
                     diag_cands.append((int(d_vals[idx]), px, py, tx, ty, 'D'))
-                pool = axis_cands if axis_cands else diag_cands
-                if not pool:
+
+                if not pool and not diag_cands:
                     continue
-                # Ada büyüklüğüne göre köprü sayısı
+
                 ys2, xs2 = np.where(isl_mask2)
                 span_svg = max(xs2.max() - xs2.min(), ys2.max() - ys2.min()) / scale
                 n_br = int(np.clip(round(span_svg / 150.0), 1, 6))
                 min_gap_px = max(span_svg * scale / (n_br + 1), 15)
                 chosen = []
-                for src in [pool, diag_cands if pool is axis_cands else []]:
+                for src in [pool or diag_cands, diag_cands]:
                     for c in src:
                         px2, py2 = c[1], c[2]
                         if all((px2 - cx) ** 2 + (py2 - cy) ** 2 >= min_gap_px ** 2 for cx, cy, *_ in chosen):
@@ -961,7 +1039,7 @@ async def selective_endpoint(
                         break
                 for c in chosen:
                     _, x1c, y1c, x2c, y2c, d = c
-                    svg_bridges.append(_bridge_svg_elem(x1c, y1c, x2c, y2c, d, bridge_width, "#000000", scale, 10.0))
+                    svg_bridges.append(_bridge_svg_elem(x1c, y1c, x2c, y2c, d, auto_bw, "#000000", scale, 10.0))
                     _stamp_line(rest, x1c, y1c, x2c, y2c)
                 rest = rest | isl_mask2
             if svg_bridges:
