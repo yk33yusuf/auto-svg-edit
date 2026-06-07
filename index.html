@@ -405,7 +405,9 @@ button { font-family: inherit; cursor: pointer; }
 
 /* canvas zoom/pan */
 .canvas-zoom  { overflow: hidden; user-select: none; }
-.canvas-inner { position: relative; width: 100%; line-height: 0; will-change: transform; }
+.canvas-inner { position: relative; width: 100%; line-height: 0; }
+/* img inside canvas (SVG rendered as img for crisp zoom) */
+.canvas-inner img { width: 100%; height: auto; display: block; }
 
 /* compare grid */
 .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -939,9 +941,19 @@ function initAllTools(text, name){
 }
 
 function renderSvg(elId, text){
-  const el = $(elId); el.innerHTML = text;
-  const svg = el.querySelector('svg');
-  if(svg){ svg.removeAttribute('width'); svg.removeAttribute('height'); }
+  const el = $(elId);
+  // Revoke previous display blob to avoid memory leaks
+  if (el._dispUrl) { URL.revokeObjectURL(el._dispUrl); el._dispUrl = null; }
+  // Use <img src="blob:svg"> instead of inline innerHTML:
+  // Chrome re-renders SVG images at the effective display resolution even under
+  // CSS transform scale, so the result stays crisp at any zoom level.
+  const blob = new Blob([text], {type:'image/svg+xml'});
+  const url  = URL.createObjectURL(blob);
+  el._dispUrl = url;
+  const img = document.createElement('img');
+  img.src = url;
+  el.innerHTML = '';
+  el.appendChild(img);
 }
 function getViewBox(text){
   const m = text.match(/viewBox="([^"]+)"/);
@@ -1043,6 +1055,16 @@ $('go').addEventListener('click', async () => {
     drawMarkers(rep);
     $('islandCtrl').style.display = rep.removed.length ? '' : 'none';
     $('beforeTag').textContent = rep.removed_count + ' ada';
+
+    // 0 ada bulunduysa sağ canvas'a orijinali göster, indirme butonlarını aç
+    if (rep.removed.length === 0) {
+      renderSvg('afterSvg', svgText);
+      cleanedText = svgText;
+      if (cleanedBlobUrl) URL.revokeObjectURL(cleanedBlobUrl);
+      cleanedBlobUrl = URL.createObjectURL(new Blob([svgText],{type:'image/svg+xml'}));
+      $('dl').disabled = false; $('png').disabled = false; $('cleanKaydet').disabled = false;
+      $('afterTag').textContent = 'temiz ✓';
+    }
   } catch(e) { showErr(e.message); }
   finally { go.disabled=false; go.textContent='Analiz Et'; }
 });
