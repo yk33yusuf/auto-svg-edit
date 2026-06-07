@@ -561,49 +561,113 @@ def _trace_skeleton(edt_black, py, px, max_steps=80):
     return max_y, max_x, max(max_val, 1.0)
 
 
+def _perp_widths(black_mask, cx, cy, pdx, pdy, max_steps=300):
+    """
+    (cx,cy) noktasından dik yönde (+pdx ve -pdx) siyah bölge içinde
+    kaç piksel gidilebildiğini ölçer.
+    Döner: (pos_extent_px, neg_extent_px)
+    """
+    h, w = black_mask.shape
+    pos = neg = 0.0
+    for step in range(1, max_steps + 1):
+        px = int(round(cx + pdx * step)); py = int(round(cy + pdy * step))
+        if 0 <= px < w and 0 <= py < h and black_mask[py, px]:
+            pos = float(step)
+        else:
+            break
+    for step in range(1, max_steps + 1):
+        px = int(round(cx - pdx * step)); py = int(round(cy - pdy * step))
+        if 0 <= px < w and 0 <= py < h and black_mask[py, px]:
+            neg = float(step)
+        else:
+            break
+    return pos, neg
+
+
+def _ray_to_exit(black_mask, cx, cy, dx, dy, max_steps=400):
+    """
+    (cx,cy)'den (dx,dy) yönünde ilerle; siyah alanda kaldığı son adımı döndür.
+    Başlangıç noktası siyah değilse 0 döner.
+    """
+    h, w = black_mask.shape
+    bx, by = int(round(cx)), int(round(cy))
+    if not (0 <= bx < w and 0 <= by < h and black_mask[by, bx]):
+        return 0.0
+    last = 0.0
+    for step in range(1, max_steps + 1):
+        px = int(round(cx + dx * step)); py = int(round(cy + dy * step))
+        if not (0 <= px < w and 0 <= py < h and black_mask[py, px]):
+            break
+        last = float(step)
+    return last
+
+
 def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
                  floor_hw=2.0, max_half_svg=40.0):
     """
-    Ada kenarı (ix,iy) ile gövde kenarı (rx,ry) arasında, kesilen çizgiyi
-    SÜREKLİYMİŞ gibi gösteren köprü üretir.
+    Ada kenarı (ix,iy) ile gövde kenarı (rx,ry) arasında kusursuz köprü üretir.
 
-    Her iki ucun skeleton (orta-eksen) noktasına çıkılır; köprü eksenine DİK
-    yönde, İKİ UCUN İNCE kalınlığı kadar ofsetle üst ve alt kenar noktaları
-    bulunur. Sonra ada-üst → gövde-üst, ada-alt → gövde-alt bağlanır.
+    Algoritma:
+      Her köşe BAĞIMSIZ olarak çalışır:
+      1. Gap-face edge pikselinden dik yönde stroke genişliğini ölç
+      2. O köşenin hedef yüzeye vardığı nokta = gap_face + perp_offset
+      3. Hedefin içine gir: _ray_to_exit ile ne kadar derine girebileceğini bul
+      4. Köşeyi hedef içine yerleştir (overlap)
 
-    - Eşit kalınlıkta kesik çizgi → boşluğu tam dolduran dikdörtgen (kullanıcı tarifi).
-    - Ada ince + gövde kalın → ada kalınlığında düz bant (gövde kesitine açılıp
-      kama YAPMAZ; min() bunu garanti eder).
+      Sonuç: köprü iki tarafa da doğal olarak oturur; yamuk/trapezoid şekil
+      hedefin gerçek konturuna göre otomatik şekillenir.
     """
-    siy, six, hwi = _trace_skeleton(edt_black, iy, ix)
-    sby, sbx, hwb = _trace_skeleton(edt_black, ry, rx)
+    black = edt_black > 0
 
-    dx, dy = sbx - six, sby - siy
-    L = math.hypot(dx, dy)
+    dx_raw, dy_raw = float(rx - ix), float(ry - iy)
+    L = math.hypot(dx_raw, dy_raw)
     if L < 0.5:
-        r = max(min(hwi, hwb), floor_hw) / scale
-        return f'<circle cx="{six/scale:.2f}" cy="{siy/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
+        r = max(floor_hw, 1.0) / scale
+        return f'<circle cx="{ix/scale:.2f}" cy="{iy/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
 
-    pdx, pdy = -dy / L, dx / L      # eksene dik birim vektör
+    ux, uy = dx_raw / L, dy_raw / L   # ada → gövde birim vektörü
+    pdx, pdy = -uy, ux                 # dik birim vektör
 
-    # İki ucun ortalaması → her iki tarafı da temsil eden, daha geniş köprü
-    o = max((hwi + hwb) / 2.0, floor_hw)
-    o = min(o, max_half_svg * scale)
+    # Skeleton'dan overlap miktarını hesapla
+    _, _, hwi = _trace_skeleton(edt_black, iy, ix)
+    _, _, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # Her iki uca overlap: hedefin kendi stroke yarıçapını geçmeyecek şekilde taşır
-    # hwi / hwb = skeleton noktasının kenara mesafesi = stroke yarı-kalınlığı
-    overlap_i = min(hwi * 1.8, o * 4.0)   # ada tarafı: stroke'un içine gir ama taşma
-    overlap_b = min(hwb * 1.8, o * 4.0)   # gövde tarafı: aynı kural
-    ax = six - (dx / L) * overlap_i
-    ay = siy - (dy / L) * overlap_i
-    bx = sbx + (dx / L) * overlap_b
-    by = sby + (dy / L) * overlap_b
+    def make_corner(edge_x, edge_y, sign_perp, into_x, into_y, base_hw):
+        """
+        edge_x/y  : gap'e bakan kenar piksel (garantili siyah)
+        sign_perp : +1 = sol köşe, -1 = sağ köşe
+        into_x/y  : hedef gövdenin içine giden yön birim vektörü
+        base_hw   : skeleton yarı-kalınlığı (overlap oranı için)
+        """
+        # Bu köşe noktasında dik genişliği ölç
+        hw_p, hw_n = _perp_widths(black, edge_x, edge_y, pdx, pdy)
+        hw = (hw_p if sign_perp > 0 else hw_n)
+        hw = min(max(hw, floor_hw), max_half_svg * scale)
 
-    # Round linecap → doğal yumuşak bitiş; parallelogram yerine tek <line>
-    stroke_w = (2.0 * o) / scale
-    return (f'<line x1="{ax/scale:.2f}" y1="{ay/scale:.2f}" '
-            f'x2="{bx/scale:.2f}" y2="{by/scale:.2f}" '
-            f'stroke="{color}" stroke-width="{stroke_w:.2f}" stroke-linecap="round"/>')
+        # Gap-face köşe konumu (dik yönde offset)
+        cx = edge_x + sign_perp * pdx * hw
+        cy = edge_y + sign_perp * pdy * hw
+
+        # Hedefin içine ne kadar girebilir?
+        ext = _ray_to_exit(black, cx, cy, into_x, into_y)
+
+        # Overlap: base_hw'nin %80'i kadar gir ama mevcut alanın %75'ini geçme
+        ovlp = min(max(base_hw * 0.8, floor_hw * scale, 3.0), ext * 0.75)
+
+        return (cx + into_x * ovlp) / scale, (cy + into_y * ovlp) / scale
+
+    # Ada tarafı: into = -ux (adanın içine, gap'ten uzaklaş)
+    Ti_fx, Ti_fy = make_corner(ix, iy, +1, -ux, -uy, hwi)
+    Bi_fx, Bi_fy = make_corner(ix, iy, -1, -ux, -uy, hwi)
+
+    # Gövde tarafı: into = +ux (gövdenin içine, gap'ten uzaklaş)
+    Tb_fx, Tb_fy = make_corner(rx, ry, +1, +ux, +uy, hwb)
+    Bb_fx, Bb_fy = make_corner(rx, ry, -1, +ux, +uy, hwb)
+
+    # Yamuk/trapezoid path: Ti → Tb → Bb → Bi → kapat
+    d_str = (f"M{Ti_fx:.2f},{Ti_fy:.2f} L{Tb_fx:.2f},{Tb_fy:.2f} "
+             f"L{Bb_fx:.2f},{Bb_fy:.2f} L{Bi_fx:.2f},{Bi_fy:.2f} Z")
+    return f'<path d="{d_str}" fill="{color}"/>'
 
 
 def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
