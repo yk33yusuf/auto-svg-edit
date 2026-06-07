@@ -519,60 +519,70 @@ def _closest_pairs(isl_mask, rest_mask, n_pairs=1, min_sep_px=20.0):
     return chosen
 
 
-def _stroke_half_width_px(edt_black, py, px, max_steps=60):
+def _trace_skeleton(edt_black, py, px, max_steps=80):
     """
-    EDT gradyanını takip ederek kenar pikselinden stroke skeleton'ına ulaşır.
-    Her adımda EDT değeri en yüksek komşuya geçer; lokal maksimumda durur.
-    Beyaz boşluk bariyeri oluşturduğundan komşu stroke'lara atlamaz.
-    Returns: skeleton noktasındaki EDT değeri = stroke yarı-genişliği (px).
+    Kenar pikselinden EDT gradyanını tırmanarak stroke'un orta-eksen (skeleton)
+    noktasına ulaşır. Yol boyunca görülen EN YÜKSEK EDT değerini döndürür —
+    böylece düz plato veya küçük gürültüde takılıp ince genişlik ölçmez.
+    Beyaz boşluk EDT'de 0 olduğundan bariyer görevi görür, komşu stroke'a atlamaz.
+    Returns: (skeleton_y, skeleton_x, half_width_px)
     """
     h, w = edt_black.shape
-    cy, cx = py, px
+    cy, cx = int(py), int(px)
+    max_val = float(edt_black[cy, cx])
+    max_y, max_x = cy, cx
     for _ in range(max_steps):
-        cur_val = edt_black[cy, cx]
-        best_val, best_y, best_x = cur_val, cy, cx
+        cur = edt_black[cy, cx]
+        best_val, best_y, best_x = cur, cy, cx
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
                 if dy == 0 and dx == 0:
                     continue
                 ny, nx = cy + dy, cx + dx
-                if 0 <= ny < h and 0 <= nx < w:
-                    v = edt_black[ny, nx]
-                    if v > best_val:
-                        best_val, best_y, best_x = v, ny, nx
+                if 0 <= ny < h and 0 <= nx < w and edt_black[ny, nx] > best_val:
+                    best_val, best_y, best_x = edt_black[ny, nx], ny, nx
+        if best_val > max_val:
+            max_val, max_y, max_x = best_val, best_y, best_x
         if best_y == cy and best_x == cx:
-            break  # lokal maksimum = skeleton noktası
+            break  # lokal maksimum
         cy, cx = best_y, best_x
-    return float(edt_black[cy, cx])
+    return max_y, max_x, max(max_val, 1.0)
 
 
-def _tapered_bridge_svg_elem(ix, iy, rx, ry, w1_px, w2_px, color, scale,
-                              min_half_svg=1.2, max_half_svg=24.0):
+def _natural_bridge_svg(ix, iy, rx, ry, hw_isl_px, hw_rest_px, color, scale,
+                        min_half_svg=1.0, max_half_svg=28.0):
     """
-    Ada (ix,iy) → gövde (rx,ry) arasında konik (yamuk) SVG köprüsü üretir.
-    w1_px / w2_px: her iki uçtaki tam çizgi genişliği (piksel cinsinden).
-    Şekil: fill'li <path> — eklendiği belli olmayan doğal geçiş.
+    Ada kenarı (ix,iy) ile gövde kenarı (rx,ry) arasında DOĞAL köprü üretir.
+    - Her iki uç, kendi şeklinin içine ~bir yarı-genişlik kadar GÖMÜLÜR (overlap):
+      böylece köprü çizgiyle kaynaşır, dikiş/uç izi kalmaz.
+    - Genişlik her uçta o noktanın gerçek stroke kalınlığına eşittir → koniklenir.
+    Şekil: fill'li yamuk <path>.
     """
     dx, dy = rx - ix, ry - iy
     length = math.hypot(dx, dy)
 
-    # Yarı-genişlikler SVG biriminde, sıkıştırılmış
-    hw1 = min(max(w1_px / 2.0 / scale, min_half_svg), max_half_svg)
-    hw2 = min(max(w2_px / 2.0 / scale, min_half_svg), max_half_svg)
+    hw1 = min(max(hw_isl_px / scale, min_half_svg), max_half_svg)   # ada ucu yarı-genişlik (svg)
+    hw2 = min(max(hw_rest_px / scale, min_half_svg), max_half_svg)  # gövde ucu yarı-genişlik
 
     if length < 0.5:
         r = max(hw1, hw2)
-        cx, cy = (ix + rx) / 2.0 / scale, (iy + ry) / 2.0 / scale
-        return f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="{color}"/>'
+        cx0, cy0 = (ix + rx) / 2.0 / scale, (iy + ry) / 2.0 / scale
+        return f'<circle cx="{cx0:.2f}" cy="{cy0:.2f}" r="{r:.2f}" fill="{color}"/>'
 
-    ndx, ndy = dx / length, dy / length   # köprü yönü (birim)
+    ndx, ndy = dx / length, dy / length   # ada → gövde birim yönü
     pdx, pdy = -ndy, ndx                  # dik birim vektör
 
-    # SVG koordinatlarına çevir
-    sx1, sy1 = ix / scale, iy / scale
-    sx2, sy2 = rx / scale, ry / scale
+    # Uçları şeklin İÇİNE gömerek overlap yarat (px cinsinden, sonra svg'ye böl)
+    ov_isl = hw_isl_px * 1.2
+    ov_rest = hw_rest_px * 1.2
+    ax_px = ix - ndx * ov_isl
+    ay_px = iy - ndy * ov_isl
+    bx_px = rx + ndx * ov_rest
+    by_px = ry + ndy * ov_rest
 
-    # Yamuk köşeleri: sol1 → sol2 → sağ2 → sağ1
+    sx1, sy1 = ax_px / scale, ay_px / scale   # gömülü ada ucu
+    sx2, sy2 = bx_px / scale, by_px / scale   # gömülü gövde ucu
+
     p1x, p1y = pdx * hw1, pdy * hw1
     p2x, p2y = pdx * hw2, pdy * hw2
 
@@ -1117,17 +1127,18 @@ async def selective_endpoint(
                     continue
 
                 for (ix, iy, rx_, ry_) in pairs:
-                    ddx, ddy = rx_ - ix, ry_ - iy
-                    blen = math.hypot(ddx, ddy)
+                    blen = math.hypot(rx_ - ix, ry_ - iy)
                     if blen < 0.5:
                         continue
-                    # EDT tabanlı yerel stroke yarı-genişlikleri — yön bağımsız
-                    hw_isl  = _stroke_half_width_px(edt_black, iy,  ix)
-                    hw_rest = _stroke_half_width_px(edt_black, ry_, rx_)
-                    svg_bridges.append(_tapered_bridge_svg_elem(
-                        ix, iy, rx_, ry_,
-                        hw_isl * 2, hw_rest * 2,   # yarı → tam genişlik
-                        "#000000", scale))
+                    # Her ucun gerçek stroke yarı-genişliği (skeleton'a tırman)
+                    _, _, hw_isl  = _trace_skeleton(edt_black, iy,  ix)
+                    _, _, hw_rest = _trace_skeleton(edt_black, ry_, rx_)
+                    # Kullanıcı min köprü kalınlığı (yarı) — taban garanti
+                    floor_hw = max(bridge_width, 1.0)
+                    hw_isl  = max(hw_isl,  floor_hw)
+                    hw_rest = max(hw_rest, floor_hw)
+                    svg_bridges.append(_natural_bridge_svg(
+                        ix, iy, rx_, ry_, hw_isl, hw_rest, "#000000", scale))
                     _stamp_line(rest, ix, iy, rx_, ry_)
                 rest = rest | isl_mask2
             if svg_bridges:
