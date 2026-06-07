@@ -590,12 +590,14 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     o = max((hwi + hwb) / 2.0, floor_hw)
     o = min(o, max_half_svg * scale)
 
-    # Her iki uca overlap: köprü bitiş noktaları gövde/ada içine taşır
-    overlap_px = max(o * 4.0, scale * 8.0)
-    ax = six - (dx / L) * overlap_px
-    ay = siy - (dy / L) * overlap_px
-    bx = sbx + (dx / L) * overlap_px
-    by = sby + (dy / L) * overlap_px
+    # Her iki uca overlap: hedefin kendi stroke yarıçapını geçmeyecek şekilde taşır
+    # hwi / hwb = skeleton noktasının kenara mesafesi = stroke yarı-kalınlığı
+    overlap_i = min(hwi * 1.8, o * 4.0)   # ada tarafı: stroke'un içine gir ama taşma
+    overlap_b = min(hwb * 1.8, o * 4.0)   # gövde tarafı: aynı kural
+    ax = six - (dx / L) * overlap_i
+    ay = siy - (dy / L) * overlap_i
+    bx = sbx + (dx / L) * overlap_b
+    by = sby + (dy / L) * overlap_b
 
     # Round linecap → doğal yumuşak bitiş; parallelogram yerine tek <line>
     stroke_w = (2.0 * o) / scale
