@@ -516,7 +516,6 @@ function initAllTools(text, name){
   layers.forEach(l=>{if(l.ov)l.ov.remove()});
   layers=[]; selId=null; seq=0;
   $('cno-base').style.display='none'; $('ccontrols').style.display='';
-  addLayer('250TH ANNIVERSARY');
 
   // Reset elle köprü
   mbBridges=[]; mbPendingA=null;
@@ -1007,16 +1006,29 @@ $('kaydet').addEventListener('click',()=>{
   window.parent.postMessage({type:'svg-save',svg:lastSvg},'*');
 });
 
-/* ── ?svg= param ── */
+/* ── ?svg=&working= params ── */
 (async function(){
-  const u=new URLSearchParams(location.search).get('svg');
-  if(!u)return;
+  const params=new URLSearchParams(location.search);
+  const svgUrl=params.get('svg');
+  const workingUrl=params.get('working');
+  if(!svgUrl)return;
   try{
-    const res=await fetch('/proxy?url='+encodeURIComponent(u));
+    const res=await fetch('/proxy?url='+encodeURIComponent(svgUrl));
     if(!res.ok)throw new Error('proxy '+res.status);
-    const text=await res.text();
-    const name=decodeURIComponent(u.split('/').pop()||'').split('?')[0]||'design.svg';
-    initAllTools(text,/\.svg$/i.test(name)?name:'design.svg');
+    const originalText=await res.text();
+    const name=decodeURIComponent(svgUrl.split('/').pop()||'').split('?')[0]||'design.svg';
+    initAllTools(originalText,/\.svg$/i.test(name)?name:'design.svg');
+
+    // Override workingSvg with the edited version if provided
+    if(workingUrl){
+      try{
+        const wr=await fetch('/proxy?url='+encodeURIComponent(workingUrl));
+        if(wr.ok){
+          workingSvg=await wr.text();
+          updateRightCanvas();
+        }
+      }catch(we){console.warn('Working SVG yüklenemedi:',we.message);}
+    }
   }catch(e){console.error('SVG param yüklenemedi:',e.message);}
 })();
 </script>
