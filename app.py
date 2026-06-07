@@ -549,52 +549,43 @@ def _trace_skeleton(edt_black, py, px, max_steps=80):
     return max_y, max_x, max(max_val, 1.0)
 
 
-def _natural_bridge_svg(ix, iy, rx, ry, hw_isl_px, hw_rest_px, color, scale,
-                        min_half_svg=1.0, max_half_svg=28.0):
+def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
+                 floor_hw=2.0, max_half_svg=40.0):
     """
-    Ada kenarı (ix,iy) ile gövde kenarı (rx,ry) arasında DOĞAL köprü üretir.
-    - Her iki uç, kendi şeklinin içine ~bir yarı-genişlik kadar GÖMÜLÜR (overlap):
-      böylece köprü çizgiyle kaynaşır, dikiş/uç izi kalmaz.
-    - Genişlik her uçta o noktanın gerçek stroke kalınlığına eşittir → koniklenir.
-    Şekil: fill'li yamuk <path>.
+    Ada kenarı (ix,iy) ile gövde kenarı (rx,ry) arasında, kesilen çizgiyi
+    SÜREKLİYMİŞ gibi gösteren köprü üretir.
+
+    Her iki ucun skeleton (orta-eksen) noktasına çıkılır; köprü eksenine DİK
+    yönde, İKİ UCUN İNCE kalınlığı kadar ofsetle üst ve alt kenar noktaları
+    bulunur. Sonra ada-üst → gövde-üst, ada-alt → gövde-alt bağlanır.
+
+    - Eşit kalınlıkta kesik çizgi → boşluğu tam dolduran dikdörtgen (kullanıcı tarifi).
+    - Ada ince + gövde kalın → ada kalınlığında düz bant (gövde kesitine açılıp
+      kama YAPMAZ; min() bunu garanti eder).
     """
-    dx, dy = rx - ix, ry - iy
-    length = math.hypot(dx, dy)
+    siy, six, hwi = _trace_skeleton(edt_black, iy, ix)
+    sby, sbx, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    hw1 = min(max(hw_isl_px / scale, min_half_svg), max_half_svg)   # ada ucu yarı-genişlik (svg)
-    hw2 = min(max(hw_rest_px / scale, min_half_svg), max_half_svg)  # gövde ucu yarı-genişlik
+    dx, dy = sbx - six, sby - siy
+    L = math.hypot(dx, dy)
+    if L < 0.5:
+        r = max(min(hwi, hwb), floor_hw) / scale
+        return f'<circle cx="{six/scale:.2f}" cy="{siy/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
 
-    if length < 0.5:
-        r = max(hw1, hw2)
-        cx0, cy0 = (ix + rx) / 2.0 / scale, (iy + ry) / 2.0 / scale
-        return f'<circle cx="{cx0:.2f}" cy="{cy0:.2f}" r="{r:.2f}" fill="{color}"/>'
+    pdx, pdy = -dy / L, dx / L      # eksene dik birim vektör
 
-    ndx, ndy = dx / length, dy / length   # ada → gövde birim yönü
-    pdx, pdy = -ndy, ndx                  # dik birim vektör
+    # İnce olan tarafın yarı-kalınlığı → yelpaze/kama önlenir
+    o = max(min(hwi, hwb), floor_hw)
+    o = min(o, max_half_svg * scale)
 
-    # Uçları şeklin İÇİNE gömerek overlap yarat (px cinsinden, sonra svg'ye böl)
-    ov_isl = hw_isl_px * 1.2
-    ov_rest = hw_rest_px * 1.2
-    ax_px = ix - ndx * ov_isl
-    ay_px = iy - ndy * ov_isl
-    bx_px = rx + ndx * ov_rest
-    by_px = ry + ndy * ov_rest
+    def s(sx, sy, sign):
+        return ((sx + sign * pdx * o) / scale, (sy + sign * pdy * o) / scale)
 
-    sx1, sy1 = ax_px / scale, ay_px / scale   # gömülü ada ucu
-    sx2, sy2 = bx_px / scale, by_px / scale   # gömülü gövde ucu
+    Ti, Bi = s(six, siy, +1), s(six, siy, -1)   # ada üst / alt
+    Tb, Bb = s(sbx, sby, +1), s(sbx, sby, -1)   # gövde üst / alt
 
-    p1x, p1y = pdx * hw1, pdy * hw1
-    p2x, p2y = pdx * hw2, pdy * hw2
-
-    corners = [
-        (sx1 + p1x, sy1 + p1y),
-        (sx2 + p2x, sy2 + p2y),
-        (sx2 - p2x, sy2 - p2y),
-        (sx1 - p1x, sy1 - p1y),
-    ]
-    d_str = (f"M{corners[0][0]:.2f},{corners[0][1]:.2f} "
-             + " ".join(f"L{x:.2f},{y:.2f}" for x, y in corners[1:])
-             + " Z")
+    d_str = (f"M{Ti[0]:.2f},{Ti[1]:.2f} L{Tb[0]:.2f},{Tb[1]:.2f} "
+             f"L{Bb[0]:.2f},{Bb[1]:.2f} L{Bi[0]:.2f},{Bi[1]:.2f} Z")
     return f'<path d="{d_str}" fill="{color}"/>'
 
 
@@ -1130,18 +1121,13 @@ async def selective_endpoint(
                     blen = math.hypot(rx_ - ix, ry_ - iy)
                     if blen < 0.5:
                         continue
-                    # Her ucun gerçek stroke yarı-genişliği (skeleton'a tırman)
-                    _, _, hw_isl  = _trace_skeleton(edt_black, iy,  ix)
-                    _, _, hw_rest = _trace_skeleton(edt_black, ry_, rx_)
-                    # Köprü bir TAB'dir: açık boşluğu geçtiğinde gövde kalınlığına
-                    # genişlerse beyaz alana kama sokar. Bu yüzden iki ucun İNCESİNİ
-                    # al — köprü en ince bağlantı kadar olur, tasarımı bozmaz.
-                    # Ayrıca boşluğun yarısını geçmesin (blob önlemi).
+                    # Kesilen çizgiyi sürekliymiş gibi göster: iki ucun tam
+                    # kesitini (üst kenar-üst, alt kenar-alt) bağla → boşluğu
+                    # strok kalınlığı boyunca dolduran dikdörtgen/yamuk.
                     floor_hw = max(bridge_width, 1.0)
-                    hw = max(min(hw_isl, hw_rest), floor_hw)
-                    hw = min(hw, blen * 0.6)          # köprü boşluktan geniş olmasın
-                    svg_bridges.append(_natural_bridge_svg(
-                        ix, iy, rx_, ry_, hw, hw, "#000000", scale))
+                    svg_bridges.append(_span_bridge(
+                        edt_black, ix, iy, rx_, ry_, scale,
+                        color="#000000", floor_hw=floor_hw))
                     _stamp_line(rest, ix, iy, rx_, ry_)
                 rest = rest | isl_mask2
             if svg_bridges:
