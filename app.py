@@ -491,11 +491,16 @@ def _orient_pool(axis_cands, orient):
 
 def _closest_pairs(isl_mask, rest_mask, n_pairs=1, min_sep_px=20.0):
     """
-    Ada kenarı ile ana gövde arasındaki en yakın n_pairs nokta çiftini bulur.
-    İyi dağılmış seçim için min_sep_px mesafe garantisi.
+    Ada kenarı ile ana gövde KENARI arasındaki en yakın n_pairs nokta çiftini bulur.
+    rest_mask'in kenar pikselleri kullanılır — iç pikseller hariç tutulur.
     Returns: list of (ix, iy, rx, ry)
     """
-    edt, edt_inds = ndimage.distance_transform_edt(~rest_mask, return_indices=True)
+    # Ana gövdenin yalnızca kenar piksellerini hedef al
+    rest_edge = rest_mask & ~ndimage.binary_erosion(rest_mask)
+    if not rest_edge.any():
+        rest_edge = rest_mask
+
+    edt, edt_inds = ndimage.distance_transform_edt(~rest_edge, return_indices=True)
     edge = isl_mask & ~ndimage.binary_erosion(isl_mask)
     if not edge.any():
         edge = isl_mask
@@ -514,28 +519,31 @@ def _closest_pairs(isl_mask, rest_mask, n_pairs=1, min_sep_px=20.0):
     return chosen
 
 
-def _perp_stroke_width_px(black_mask, px, py, bridge_dx, bridge_dy, max_search=80):
+def _stroke_half_width_px(edt_black, py, px, max_steps=60):
     """
-    (px,py) noktasında, köprü yönüne dik olarak siyah bölgenin genişliğini ölçer.
-    bridge_dx/dy: köprü yönünün birim vektörü.
-    Returns: pixel cinsinden tam genişlik.
+    EDT gradyanını takip ederek kenar pikselinden stroke skeleton'ına ulaşır.
+    Her adımda EDT değeri en yüksek komşuya geçer; lokal maksimumda durur.
+    Beyaz boşluk bariyeri oluşturduğundan komşu stroke'lara atlamaz.
+    Returns: skeleton noktasındaki EDT değeri = stroke yarı-genişliği (px).
     """
-    h, w = black_mask.shape
-    norm = math.hypot(bridge_dx, bridge_dy)
-    if norm < 1e-9:
-        return 2
-    pdx, pdy = -bridge_dy / norm, bridge_dx / norm  # dik birim vektör
-    count = 1
-    for sign in (1, -1):
-        for d in range(1, max_search + 1):
-            nx = int(round(px + sign * pdx * d))
-            ny = int(round(py + sign * pdy * d))
-            if not (0 <= nx < w and 0 <= ny < h):
-                break
-            if not black_mask[ny, nx]:
-                break
-            count += 1
-    return max(count, 1)
+    h, w = edt_black.shape
+    cy, cx = py, px
+    for _ in range(max_steps):
+        cur_val = edt_black[cy, cx]
+        best_val, best_y, best_x = cur_val, cy, cx
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dy == 0 and dx == 0:
+                    continue
+                ny, nx = cy + dy, cx + dx
+                if 0 <= ny < h and 0 <= nx < w:
+                    v = edt_black[ny, nx]
+                    if v > best_val:
+                        best_val, best_y, best_x = v, ny, nx
+        if best_y == cy and best_x == cx:
+            break  # lokal maksimum = skeleton noktası
+        cy, cx = best_y, best_x
+    return float(edt_black[cy, cx])
 
 
 def _tapered_bridge_svg_elem(ix, iy, rx, ry, w1_px, w2_px, color, scale,
@@ -1082,6 +1090,8 @@ async def selective_endpoint(
         if n2 > 0:
             main_label2 = int(np.argmax(sizes2)) + 1
             rest = (labels2 == main_label2).copy()
+            # EDT: her siyah pikselin beyaza mesafesi = yerel yarı-stroke kalınlığı
+            edt_black = ndimage.distance_transform_edt(black2)
             svg_bridges = []
             for i in br_valid:
                 orig_mask = island_list[i]["pmask"]
@@ -1111,13 +1121,13 @@ async def selective_endpoint(
                     blen = math.hypot(ddx, ddy)
                     if blen < 0.5:
                         continue
-                    ndx_b = ddx / blen
-                    ndy_b = ddy / blen
-                    # Her iki uçta yerel çizgi kalınlığını dik yönde ölç
-                    w_isl  = _perp_stroke_width_px(black2, ix,  iy,  ndx_b, ndy_b)
-                    w_rest = _perp_stroke_width_px(black2, rx_, ry_, ndx_b, ndy_b)
+                    # EDT tabanlı yerel stroke yarı-genişlikleri — yön bağımsız
+                    hw_isl  = _stroke_half_width_px(edt_black, iy,  ix)
+                    hw_rest = _stroke_half_width_px(edt_black, ry_, rx_)
                     svg_bridges.append(_tapered_bridge_svg_elem(
-                        ix, iy, rx_, ry_, w_isl, w_rest, "#000000", scale))
+                        ix, iy, rx_, ry_,
+                        hw_isl * 2, hw_rest * 2,   # yarı → tam genişlik
+                        "#000000", scale))
                     _stamp_line(rest, ix, iy, rx_, ry_)
                 rest = rest | isl_mask2
             if svg_bridges:
