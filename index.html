@@ -147,13 +147,13 @@ button{font-family:inherit;cursor:pointer}
 @media(max-width:900px){.compare{grid-template-columns:1fr}}
 
 /* ── ISLAND MARKERS ── */
-.imark{position:absolute;transform:translate(-50%,-50%);width:36px;height:36px;border-radius:50%;border:2.5px solid rgba(255,255,255,.45);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.28),0 0 0 3px rgba(0,0,0,.12);transition:transform .12s,box-shadow .12s;z-index:5}
-.imark:hover{transform:translate(-50%,-50%) scale(1.22);box-shadow:0 4px 16px rgba(0,0,0,.38),0 0 0 4px rgba(0,0,0,.15)}
-.imark[data-s="delete"]{background:var(--danger);color:#fff}
-.imark[data-s="bridge"]{background:var(--accent);color:#fff}
-.imark[data-s="keep"]{background:var(--ok);color:#fff}
-.imark .mnum{font-size:11px;font-weight:800;line-height:1}
-.imark .mico{font-size:9px;line-height:1;opacity:.8}
+.imark{position:absolute;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;border:1.5px solid rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;box-shadow:0 1px 4px rgba(0,0,0,.35);transition:width .15s,height .15s,box-shadow .15s;z-index:5;overflow:hidden}
+.imark:hover{width:28px;height:28px;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+.imark[data-s="delete"]{background:var(--danger)}
+.imark[data-s="bridge"]{background:var(--accent)}
+.imark[data-s="keep"]{background:var(--ok)}
+.imark .mnum{font-size:10px;font-weight:800;color:#fff;opacity:0;transition:opacity .1s;white-space:nowrap;line-height:1}
+.imark:hover .mnum{opacity:1}
 
 /* ── STATS ── */
 .stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
@@ -683,7 +683,7 @@ function drawMarkers(rep){
     const m=document.createElement('button');
     m.className='imark'; m.style.left=cx+'%'; m.style.top=cy+'%';
     m.dataset.idx=i; m.dataset.s=islandStates[i]||'delete';
-    m.innerHTML=`<span class="mnum">${i+1}</span><span class="mico">${S_ICO[m.dataset.s]}</span>`;
+    m.innerHTML=`<span class="mnum">${i+1}</span>`;
     m.title=`Ada #${i+1} · ${r.area_pt2}pt²`;
     m.addEventListener('click',e=>{
       e.stopPropagation();
