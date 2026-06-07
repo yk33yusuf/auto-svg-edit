@@ -389,22 +389,29 @@ def _axis_bridge_candidates(island_mask, main_mask):
 
 
 def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=8.0):
-    """Kopruyu temiz SVG elemanina donustur. H/V icin <rect>, capraz icin <line>."""
+    """Kopruyu temiz SVG elemanina donustur. H/V icin <rect>, capraz icin <line>.
+    Köprü her iki tarafa da bw/2 kadar taşar (overlap) ve köşeler yumuşatılır."""
     sx1, sy1, sx2, sy2 = x1/scale, y1/scale, x2/scale, y2/scale
+    ovlp = bw * 0.5  # her iki tarafa taşacak miktar (svg birimi)
+    rx = min(bw * 0.45, 5.0)  # köşe yumuşatma yarıçapı
     if direction == 'H':
         length = abs(sx2 - sx1)
         if length < min_svg:
             mid = (sx1 + sx2) / 2
             sx1, sx2 = mid - min_svg/2, mid + min_svg/2
-        return (f'<rect x="{min(sx1,sx2):.2f}" y="{(sy1+sy2)/2-bw/2:.2f}" '
-                f'width="{abs(sx2-sx1):.2f}" height="{bw:.2f}" fill="{color}"/>')
+        lx = min(sx1, sx2) - ovlp
+        w  = abs(sx2 - sx1) + 2 * ovlp
+        return (f'<rect x="{lx:.2f}" y="{(sy1+sy2)/2-bw/2:.2f}" '
+                f'width="{w:.2f}" height="{bw:.2f}" rx="{rx:.1f}" fill="{color}"/>')
     elif direction == 'V':
         length = abs(sy2 - sy1)
         if length < min_svg:
             mid = (sy1 + sy2) / 2
             sy1, sy2 = mid - min_svg/2, mid + min_svg/2
-        return (f'<rect x="{(sx1+sx2)/2-bw/2:.2f}" y="{min(sy1,sy2):.2f}" '
-                f'width="{bw:.2f}" height="{abs(sy2-sy1):.2f}" fill="{color}"/>')
+        ty = min(sy1, sy2) - ovlp
+        h  = abs(sy2 - sy1) + 2 * ovlp
+        return (f'<rect x="{(sx1+sx2)/2-bw/2:.2f}" y="{ty:.2f}" '
+                f'width="{bw:.2f}" height="{h:.2f}" rx="{rx:.1f}" fill="{color}"/>')
     else:
         length = math.hypot(sx2-sx1, sy2-sy1)
         if length < min_svg and length > 0:
@@ -412,8 +419,13 @@ def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=8.0):
             mx, my = (sx1+sx2)/2, (sy1+sy2)/2
             sx1,sy1 = mx-dx*min_svg/2, my-dy*min_svg/2
             sx2,sy2 = mx+dx*min_svg/2, my+dy*min_svg/2
+        # Diyagonal: round linecap + her iki uca overlap
+        if length > 0:
+            dx, dy = (sx2-sx1)/length, (sy2-sy1)/length
+            sx1 -= dx * ovlp; sy1 -= dy * ovlp
+            sx2 += dx * ovlp; sy2 += dy * ovlp
         return (f'<line x1="{sx1:.2f}" y1="{sy1:.2f}" x2="{sx2:.2f}" y2="{sy2:.2f}" '
-                f'stroke="{color}" stroke-width="{bw:.2f}" stroke-linecap="square"/>')
+                f'stroke="{color}" stroke-width="{bw:.2f}" stroke-linecap="round"/>')
 
 
 def _island_orient_and_width(isl_mask, scale):
@@ -574,19 +586,22 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
 
     pdx, pdy = -dy / L, dx / L      # eksene dik birim vektör
 
-    # İnce olan tarafın yarı-kalınlığı → yelpaze/kama önlenir
-    o = max(min(hwi, hwb), floor_hw)
+    # İki ucun ortalaması → her iki tarafı da temsil eden, daha geniş köprü
+    o = max((hwi + hwb) / 2.0, floor_hw)
     o = min(o, max_half_svg * scale)
 
-    def s(sx, sy, sign):
-        return ((sx + sign * pdx * o) / scale, (sy + sign * pdy * o) / scale)
+    # Her iki uca overlap: köprü bitiş noktaları gövde/ada içine taşır
+    overlap_px = max(o * 1.5, scale * 3.0)
+    ax = six - (dx / L) * overlap_px
+    ay = siy - (dy / L) * overlap_px
+    bx = sbx + (dx / L) * overlap_px
+    by = sby + (dy / L) * overlap_px
 
-    Ti, Bi = s(six, siy, +1), s(six, siy, -1)   # ada üst / alt
-    Tb, Bb = s(sbx, sby, +1), s(sbx, sby, -1)   # gövde üst / alt
-
-    d_str = (f"M{Ti[0]:.2f},{Ti[1]:.2f} L{Tb[0]:.2f},{Tb[1]:.2f} "
-             f"L{Bb[0]:.2f},{Bb[1]:.2f} L{Bi[0]:.2f},{Bi[1]:.2f} Z")
-    return f'<path d="{d_str}" fill="{color}"/>'
+    # Round linecap → doğal yumuşak bitiş; parallelogram yerine tek <line>
+    stroke_w = (2.0 * o) / scale
+    return (f'<line x1="{ax/scale:.2f}" y1="{ay/scale:.2f}" '
+            f'x2="{bx/scale:.2f}" y2="{by/scale:.2f}" '
+            f'stroke="{color}" stroke-width="{stroke_w:.2f}" stroke-linecap="round"/>')
 
 
 def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
