@@ -392,7 +392,7 @@ def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=8.0):
     """Kopruyu temiz SVG elemanina donustur. H/V icin <rect>, capraz icin <line>.
     Köprü her iki tarafa da bw/2 kadar taşar (overlap) ve köşeler yumuşatılır."""
     sx1, sy1, sx2, sy2 = x1/scale, y1/scale, x2/scale, y2/scale
-    ovlp = bw * 0.5  # her iki tarafa taşacak miktar (svg birimi)
+    ovlp = bw * 1.5  # her iki tarafa taşacak miktar (svg birimi)
     rx = min(bw * 0.45, 5.0)  # köşe yumuşatma yarıçapı
     if direction == 'H':
         length = abs(sx2 - sx1)
@@ -591,7 +591,7 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     o = min(o, max_half_svg * scale)
 
     # Her iki uca overlap: köprü bitiş noktaları gövde/ada içine taşır
-    overlap_px = max(o * 1.5, scale * 3.0)
+    overlap_px = max(o * 4.0, scale * 8.0)
     ax = six - (dx / L) * overlap_px
     ay = siy - (dy / L) * overlap_px
     bx = sbx + (dx / L) * overlap_px
