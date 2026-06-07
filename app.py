@@ -1133,12 +1133,15 @@ async def selective_endpoint(
                     # Her ucun gerçek stroke yarı-genişliği (skeleton'a tırman)
                     _, _, hw_isl  = _trace_skeleton(edt_black, iy,  ix)
                     _, _, hw_rest = _trace_skeleton(edt_black, ry_, rx_)
-                    # Kullanıcı min köprü kalınlığı (yarı) — taban garanti
+                    # Köprü bir TAB'dir: açık boşluğu geçtiğinde gövde kalınlığına
+                    # genişlerse beyaz alana kama sokar. Bu yüzden iki ucun İNCESİNİ
+                    # al — köprü en ince bağlantı kadar olur, tasarımı bozmaz.
+                    # Ayrıca boşluğun yarısını geçmesin (blob önlemi).
                     floor_hw = max(bridge_width, 1.0)
-                    hw_isl  = max(hw_isl,  floor_hw)
-                    hw_rest = max(hw_rest, floor_hw)
+                    hw = max(min(hw_isl, hw_rest), floor_hw)
+                    hw = min(hw, blen * 0.6)          # köprü boşluktan geniş olmasın
                     svg_bridges.append(_natural_bridge_svg(
-                        ix, iy, rx_, ry_, hw_isl, hw_rest, "#000000", scale))
+                        ix, iy, rx_, ry_, hw, hw, "#000000", scale))
                     _stamp_line(rest, ix, iy, rx_, ry_)
                 rest = rest | isl_mask2
             if svg_bridges:
