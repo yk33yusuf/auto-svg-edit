@@ -552,39 +552,37 @@ def _trace_skeleton(edt_black, py, px, max_steps=80):
 def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
                  floor_hw=2.0, max_half_svg=40.0):
     """
-    Ada kenarı (ix,iy) ile gövde kenarı (rx,ry) arasında köprü üretir.
+    Ada kenarı (ix,iy) ile gövde kenarı (rx,ry) arasında, kesilen çizgiyi
+    SÜREKLİYMİŞ gibi gösteren köprü üretir.
 
-    Köprü, en kısa boşluk (kenar→kenar) DOĞRULTUSUNDA kurulur — skeleton
-    sapması yok, yani beyaz alanı mümkün olan en az kesecek şekilde en yakın
-    siyaha gider. Genişlik iki ucun İNCESİ kadar (kama/yelpaze önlenir).
-    Uçlar şekle hafif gömülür (overlap) → kaynaşır, dikiş izi kalmaz.
+    Her iki ucun skeleton (orta-eksen) noktasına çıkılır; köprü eksenine DİK
+    yönde, İKİ UCUN İNCE kalınlığı kadar ofsetle üst ve alt kenar noktaları
+    bulunur. Sonra ada-üst → gövde-üst, ada-alt → gövde-alt bağlanır.
 
-    - Eşit kalınlıkta kesik çizgi → boşluğu tam dolduran dikdörtgen.
-    - Ada ince + gövde kalın → ada kalınlığında düz bant.
+    - Eşit kalınlıkta kesik çizgi → boşluğu tam dolduran dikdörtgen (kullanıcı tarifi).
+    - Ada ince + gövde kalın → ada kalınlığında düz bant (gövde kesitine açılıp
+      kama YAPMAZ; min() bunu garanti eder).
     """
-    dx, dy = rx - ix, ry - iy          # gerçek en kısa boşluk doğrultusu
-    L = math.hypot(dx, dy)
+    siy, six, hwi = _trace_skeleton(edt_black, iy, ix)
+    sby, sbx, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    _, _, hwi = _trace_skeleton(edt_black, iy, ix)
-    _, _, hwb = _trace_skeleton(edt_black, ry, rx)
+    dx, dy = sbx - six, sby - siy
+    L = math.hypot(dx, dy)
+    if L < 0.5:
+        r = max(min(hwi, hwb), floor_hw) / scale
+        return f'<circle cx="{six/scale:.2f}" cy="{siy/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
+
+    pdx, pdy = -dy / L, dx / L      # eksene dik birim vektör
+
+    # İnce olan tarafın yarı-kalınlığı → yelpaze/kama önlenir
     o = max(min(hwi, hwb), floor_hw)
     o = min(o, max_half_svg * scale)
 
-    if L < 0.5:
-        return f'<circle cx="{ix/scale:.2f}" cy="{iy/scale:.2f}" r="{o/scale:.2f}" fill="{color}"/>'
+    def s(sx, sy, sign):
+        return ((sx + sign * pdx * o) / scale, (sy + sign * pdy * o) / scale)
 
-    ndx, ndy = dx / L, dy / L          # ada → gövde birim
-    pdx, pdy = -ndy, ndx               # dik birim
-
-    # Uçları boşluk doğrultusunda şekle hafif göm (overlap, kısa tut)
-    aix, aiy = ix - ndx * o, iy - ndy * o      # ada içine
-    box, boy = rx + ndx * o, ry + ndy * o      # gövde içine
-
-    def s(cx, cy, sign):
-        return ((cx + sign * pdx * o) / scale, (cy + sign * pdy * o) / scale)
-
-    Ti, Bi = s(aix, aiy, +1), s(aix, aiy, -1)   # ada üst / alt
-    Tb, Bb = s(box, boy, +1), s(box, boy, -1)   # gövde üst / alt
+    Ti, Bi = s(six, siy, +1), s(six, siy, -1)   # ada üst / alt
+    Tb, Bb = s(sbx, sby, +1), s(sbx, sby, -1)   # gövde üst / alt
 
     d_str = (f"M{Ti[0]:.2f},{Ti[1]:.2f} L{Tb[0]:.2f},{Tb[1]:.2f} "
              f"L{Bb[0]:.2f},{Bb[1]:.2f} L{Bi[0]:.2f},{Bi[1]:.2f} Z")
