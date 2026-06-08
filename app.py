@@ -632,39 +632,49 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     _, _, hwi = _trace_skeleton(edt_black, iy, ix)
     _, _, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    def make_corner(edge_x, edge_y, sign_perp, into_x, into_y, base_hw):
-        """
-        edge_x/y  : gap'e bakan kenar piksel (garantili siyah)
-        sign_perp : +1 = sol köşe, -1 = sağ köşe
-        into_x/y  : hedef gövdenin içine giden yön birim vektörü
-        base_hw   : skeleton yarı-kalınlığı (overlap oranı için)
-        """
-        # Bu köşe noktasında dik genişliği ölç
-        hw_p, hw_n = _perp_widths(black, edge_x, edge_y, pdx, pdy)
-        hw = (hw_p if sign_perp > 0 else hw_n)
-        hw = min(max(hw, floor_hw), max_half_svg * scale)
+    # ── Skeleton noktaları (EDT garantili siyah, stroke merkezi) ──
+    siy_v, six_v, hwi = _trace_skeleton(edt_black, iy, ix)
+    sby_v, sbx_v, hwb = _trace_skeleton(edt_black, ry, rx)
 
-        # Gap-face köşe konumu (dik yönde offset)
-        cx = edge_x + sign_perp * pdx * hw
-        cy = edge_y + sign_perp * pdy * hw
+    # Skeleton'dan dik yönde gerçek stroke genişliğini ölç
+    # (EDT yarıçapı değil, o yöndeki gerçek piksel sayısı)
+    hw_ip, hw_in = _perp_widths(black, six_v, siy_v, pdx, pdy)
+    hw_bp, hw_bn = _perp_widths(black, sbx_v, sby_v, pdx, pdy)
+    hw_ip = min(max(hw_ip, floor_hw), max_half_svg * scale)
+    hw_in = min(max(hw_in, floor_hw), max_half_svg * scale)
+    hw_bp = min(max(hw_bp, floor_hw), max_half_svg * scale)
+    hw_bn = min(max(hw_bn, floor_hw), max_half_svg * scale)
 
-        # Hedefin içine ne kadar girebilir?
-        ext = _ray_to_exit(black, cx, cy, into_x, into_y)
+    # ── Ada köşeleri: skeleton + perp offset → içeriden gap yüzüne uzan ──
+    # Skeleton noktası stroke merkezinde (siyah garantili).
+    # +ux yönünde giderek her köşenin gap'e bakan yüzünü bul.
+    Ti_x = six_v + pdx * hw_ip;  Ti_y = siy_v + pdy * hw_ip
+    Bi_x = six_v - pdx * hw_in;  Bi_y = siy_v - pdy * hw_in
 
-        # Overlap: base_hw'nin %80'i kadar gir ama mevcut alanın %75'ini geçme
-        ovlp = min(max(base_hw * 0.8, floor_hw * scale, 3.0), ext * 0.75)
+    ext_Ti = _ray_to_exit(black, Ti_x, Ti_y, ux, uy)   # gap'e kaç px kaldı
+    ext_Bi = _ray_to_exit(black, Bi_x, Bi_y, ux, uy)
 
-        return (cx + into_x * ovlp) / scale, (cy + into_y * ovlp) / scale
+    # Gap yüzünden -ux yönünde ovlp kadar çekil → adanın içine gömül
+    ovlp_i = max(hwi * 0.8, floor_hw * scale, 3.0)
+    Ti_fx = (Ti_x + ux * ext_Ti - ux * ovlp_i) / scale
+    Ti_fy = (Ti_y + uy * ext_Ti - uy * ovlp_i) / scale
+    Bi_fx = (Bi_x + ux * ext_Bi - ux * ovlp_i) / scale
+    Bi_fy = (Bi_y + uy * ext_Bi - uy * ovlp_i) / scale
 
-    # Ada tarafı: into = -ux (adanın içine, gap'ten uzaklaş)
-    Ti_fx, Ti_fy = make_corner(ix, iy, +1, -ux, -uy, hwi)
-    Bi_fx, Bi_fy = make_corner(ix, iy, -1, -ux, -uy, hwi)
+    # ── Gövde köşeleri: aynı mantık, -ux yönünde gap'e uzan ──
+    Tb_x = sbx_v + pdx * hw_bp;  Tb_y = sby_v + pdy * hw_bp
+    Bb_x = sbx_v - pdx * hw_bn;  Bb_y = sby_v - pdy * hw_bn
 
-    # Gövde tarafı: into = +ux (gövdenin içine, gap'ten uzaklaş)
-    Tb_fx, Tb_fy = make_corner(rx, ry, +1, +ux, +uy, hwb)
-    Bb_fx, Bb_fy = make_corner(rx, ry, -1, +ux, +uy, hwb)
+    ext_Tb = _ray_to_exit(black, Tb_x, Tb_y, -ux, -uy)
+    ext_Bb = _ray_to_exit(black, Bb_x, Bb_y, -ux, -uy)
 
-    # Yamuk/trapezoid path: Ti → Tb → Bb → Bi → kapat
+    ovlp_b = max(hwb * 0.8, floor_hw * scale, 3.0)
+    Tb_fx = (Tb_x - ux * ext_Tb + ux * ovlp_b) / scale
+    Tb_fy = (Tb_y - uy * ext_Tb + uy * ovlp_b) / scale
+    Bb_fx = (Bb_x - ux * ext_Bb + ux * ovlp_b) / scale
+    Bb_fy = (Bb_y - uy * ext_Bb + uy * ovlp_b) / scale
+
+    # Yamuk path: Ti → Tb → Bb → Bi → kapat
     d_str = (f"M{Ti_fx:.2f},{Ti_fy:.2f} L{Tb_fx:.2f},{Tb_fy:.2f} "
              f"L{Bb_fx:.2f},{Bb_fy:.2f} L{Bi_fx:.2f},{Bi_fy:.2f} Z")
     return f'<path d="{d_str}" fill="{color}"/>'
