@@ -605,17 +605,14 @@ def _ray_to_exit(black_mask, cx, cy, dx, dy, max_steps=400):
 def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
                  floor_hw=2.0, max_half_svg=40.0):
     """
-    Edge-pixel tabanlı, inscribed circle garantili yamuk köprü.
+    Skeleton-tabanlı, inscribed circle garantili yamuk köprü.
 
-    Köşe pozisyonu analizi:
-      Köşe = (ix - ux*ovlp_i + pdx*hw_i, iy - uy*ovlp_i + pdy*hw_i)
-      Skeleton'a uzaklık = hwi * sqrt((1-α)² + β²)
-      α = ovlp/hwi = 0.50, β = hw/hwi = 0.85
-      → sqrt(0.25 + 0.7225) = 0.986 < 1.0 → inscribed circle içinde → siyah garantisi
+    hwi = skeleton EDT değeri = inscribed circle radius.
+    Köşe = skeleton ± pdx * hwi → mesafe = hwi = inscribed circle sınırı → siyah garantisi.
 
-      Skeleton tabanlı anchor KULLANILMAZ: skeleton gövdenin derinlerine uzanır;
-      geniş bir trapezoid oluştuğunda bitişik beyaz alanları kaplayarak kama oluşturur.
-      Edge pixel anchor → bridge yalnızca gap bölgesiyle sınırlı kalır.
+    Bridge, skeleton_i → skeleton_b span eder.
+    Skeleton her iki edge pikselinin içindedir → overlap otomatik.
+    Yamuk: hwi ≠ hwb ise iki uç farklı genişlikte.
     """
     black = edt_black > 0
 
@@ -626,32 +623,27 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
         r = max(float(hwi), floor_hw) / scale
         return f'<circle cx="{ix/scale:.2f}" cy="{iy/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
 
-    ux, uy = dx_raw / L, dy_raw / L   # ada → gövde birim vektörü (bridge ekseni)
+    ux, uy = dx_raw / L, dy_raw / L   # ada → gövde birim vektörü
     pdx, pdy = -uy, ux                 # bridge'e dik birim vektör
 
-    # Skeleton'dan hwi al (EDT inscribed circle radius)
-    _, _, hwi = _trace_skeleton(edt_black, iy, ix)
-    _, _, hwb = _trace_skeleton(edt_black, ry, rx)
+    # Skeleton noktaları ve EDT inscribed circle yarıçapları
+    siy_v, six_v, hwi = _trace_skeleton(edt_black, iy, ix)
+    sby_v, sbx_v, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # α = overlap/hwi = 0.50  →  gövde içine ne kadar gir
-    # β = hw/hwi     = 0.85  →  dik yönde ne kadar genişle
-    # α² + β² = 0.25 + 0.7225 = 0.9725 < 1  →  corner inscribed circle içinde
-    _ALPHA, _BETA = 0.50, 0.85
+    if math.hypot(sbx_v - six_v, sby_v - siy_v) < 0.5:
+        r = max((float(hwi) + float(hwb)) / 2.0, floor_hw) / scale
+        return f'<circle cx="{six_v/scale:.2f}" cy="{siy_v/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
 
-    ovlp_i = max(float(hwi) * _ALPHA, floor_hw * scale, 2.0)
-    ovlp_b = max(float(hwb) * _ALPHA, floor_hw * scale, 2.0)
-    hw_i   = min(max(float(hwi) * _BETA, floor_hw), max_half_svg * scale)
-    hw_b   = min(max(float(hwb) * _BETA, floor_hw), max_half_svg * scale)
+    # Bridge half-width: EDT inscribed circle radius
+    # pdx yönünde skeleton'dan bu kadar gitmek siyah içinde kalma garantisi verir
+    hw_i = min(max(float(hwi), floor_hw), max_half_svg * scale)
+    hw_b = min(max(float(hwb), floor_hw), max_half_svg * scale)
 
-    # Köşeler: edge pixel'den overlap kadar içeri gir, dik yönde hw kadar genişle
-    Ti_fx = (ix - ux * ovlp_i + pdx * hw_i) / scale
-    Ti_fy = (iy - uy * ovlp_i + pdy * hw_i) / scale
-    Bi_fx = (ix - ux * ovlp_i - pdx * hw_i) / scale
-    Bi_fy = (iy - uy * ovlp_i - pdy * hw_i) / scale
-    Tb_fx = (rx + ux * ovlp_b + pdx * hw_b) / scale
-    Tb_fy = (ry + uy * ovlp_b + pdy * hw_b) / scale
-    Bb_fx = (rx + ux * ovlp_b - pdx * hw_b) / scale
-    Bb_fy = (ry + uy * ovlp_b - pdy * hw_b) / scale
+    # Yamuk köşeler: skeleton ± pdx * hw
+    Ti_fx = (six_v + pdx * hw_i) / scale;  Ti_fy = (siy_v + pdy * hw_i) / scale
+    Bi_fx = (six_v - pdx * hw_i) / scale;  Bi_fy = (siy_v - pdy * hw_i) / scale
+    Tb_fx = (sbx_v + pdx * hw_b) / scale;  Tb_fy = (sby_v + pdy * hw_b) / scale
+    Bb_fx = (sbx_v - pdx * hw_b) / scale;  Bb_fy = (sby_v - pdy * hw_b) / scale
 
     d_str = (f"M{Ti_fx:.2f},{Ti_fy:.2f} L{Tb_fx:.2f},{Tb_fy:.2f} "
              f"L{Bb_fx:.2f},{Bb_fy:.2f} L{Bi_fx:.2f},{Bi_fy:.2f} Z")
