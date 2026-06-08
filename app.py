@@ -632,22 +632,33 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     _, _, hwi = _trace_skeleton(edt_black, iy, ix)
     _, _, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # Skeleton half-width: overlap miktarını belirlemek için
-    _, _, hwi = _trace_skeleton(edt_black, iy, ix)
-    _, _, hwb = _trace_skeleton(edt_black, ry, rx)
+    # Skeleton noktaları (EDT garantili siyah)
+    siy_v, six_v, hwi = _trace_skeleton(edt_black, iy, ix)
+    sby_v, sbx_v, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # ── Gap-face'te perp genişliği ölç ──
-    # (ix,iy) ve (rx,ry) ZATEN gap sınırında, garantili siyah.
-    # Skeleton yerine buradan ölçmek → tam gap yüzündeki stroke genişliğini verir.
-    # _ray_to_exit KULLANMA: eğrisel stroke'larda +ux yönünde devasa ext döndürüyor.
-    hw_ip, hw_in = _perp_widths(black, ix, iy, pdx, pdy)
-    hw_bp, hw_bn = _perp_widths(black, rx, ry, pdx, pdy)
-    hw_ip = min(max(hw_ip, floor_hw), max_half_svg * scale)
-    hw_in = min(max(hw_in, floor_hw), max_half_svg * scale)
-    hw_bp = min(max(hw_bp, floor_hw), max_half_svg * scale)
-    hw_bn = min(max(hw_bn, floor_hw), max_half_svg * scale)
+    # ── Perp genişlik: skeleton + edge pixel'den ikisini de ölç, tutarlı olanı al ──
+    # Skeleton ölçümü: güvenilir ama gap yüzünü değil stroke ortasını temsil eder
+    # Edge ölçümü: gap yüzünü doğru bulur ama eğimli stroke'larda 0 dönebilir
+    # Kural: edge < skeleton'ın %25'i ise skeleton'u kullan (boundary artefaktı)
+    hw_ip_s, hw_in_s = _perp_widths(black, six_v, siy_v, pdx, pdy)
+    hw_ip_e, hw_in_e = _perp_widths(black, ix, iy, pdx, pdy)
+    hw_bp_s, hw_bn_s = _perp_widths(black, sbx_v, sby_v, pdx, pdy)
+    hw_bp_e, hw_bn_e = _perp_widths(black, rx, ry, pdx, pdy)
 
-    # Ada gap-face köşeleri (gap sınırında, siyah garantili)
+    def pick(edge_val, skel_val):
+        """Edge değeri skeleton'ın %25'inden fazlaysa kullan; yoksa skeleton'a dön."""
+        return edge_val if edge_val >= skel_val * 0.25 else skel_val
+
+    hw_ip = min(max(pick(hw_ip_e, hw_ip_s), floor_hw), max_half_svg * scale)
+    hw_in = min(max(pick(hw_in_e, hw_in_s), floor_hw), max_half_svg * scale)
+    hw_bp = min(max(pick(hw_bp_e, hw_bp_s), floor_hw), max_half_svg * scale)
+    hw_bn = min(max(pick(hw_bn_e, hw_bn_s), floor_hw), max_half_svg * scale)
+
+    # Overlap miktarları
+    ovlp_i = max(hwi * 0.8, floor_hw * scale, 2.0)
+    ovlp_b = max(hwb * 0.8, floor_hw * scale, 2.0)
+
+    # Ada gap-face köşeleri: edge pixel konumunda, perp offset uygulanmış
     Ti_x = ix + pdx * hw_ip;  Ti_y = iy + pdy * hw_ip
     Bi_x = ix - pdx * hw_in;  Bi_y = iy - pdy * hw_in
 
@@ -655,12 +666,7 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     Tb_x = rx + pdx * hw_bp;  Tb_y = ry + pdy * hw_bp
     Bb_x = rx - pdx * hw_bn;  Bb_y = ry - pdy * hw_bn
 
-    # Overlap: gap yüzünden her vücudun içine sabit miktarda gir
-    # Ada: -ux (gap'ten uzaklaş, adanın içine)
-    # Gövde: +ux (gap'ten uzaklaş, gövdenin içine)
-    ovlp_i = max(hwi * 0.8, floor_hw * scale, 2.0)
-    ovlp_b = max(hwb * 0.8, floor_hw * scale, 2.0)
-
+    # Overlap: gap yüzünden içeri gir (-ux ada, +ux gövde)
     Ti_fx = (Ti_x - ux * ovlp_i) / scale;  Ti_fy = (Ti_y - uy * ovlp_i) / scale
     Bi_fx = (Bi_x - ux * ovlp_i) / scale;  Bi_fy = (Bi_y - uy * ovlp_i) / scale
     Tb_fx = (Tb_x + ux * ovlp_b) / scale;  Tb_fy = (Tb_y + uy * ovlp_b) / scale
