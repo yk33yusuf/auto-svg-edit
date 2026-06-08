@@ -605,72 +605,56 @@ def _ray_to_exit(black_mask, cx, cy, dx, dy, max_steps=400):
 def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
                  floor_hw=2.0, max_half_svg=40.0):
     """
-    Ada kenarı (ix,iy) ile gövde kenarı (rx,ry) arasında kusursuz köprü üretir.
+    EDT inscribed circle garantisiyle yamuk köprü üretir.
 
-    Algoritma:
-      Her köşe BAĞIMSIZ olarak çalışır:
-      1. Gap-face edge pikselinden dik yönde stroke genişliğini ölç
-      2. O köşenin hedef yüzeye vardığı nokta = gap_face + perp_offset
-      3. Hedefin içine gir: _ray_to_exit ile ne kadar derine girebileceğini bul
-      4. Köşeyi hedef içine yerleştir (overlap)
+    Temel ilke:
+      hwi = skeleton noktasındaki EDT değeri = herhangi bir yönde o noktadan
+      siyah içinde kalma garantili maksimum yarıçap (inscribed circle radius).
 
-      Sonuç: köprü iki tarafa da doğal olarak oturur; yamuk/trapezoid şekil
-      hedefin gerçek konturuna göre otomatik şekillenir.
+      Köşe = skeleton ± pdx * hwi → mesafe = hwi < EDT değeri → siyah garantisi.
+      _perp_widths KULLANILMAZ: stroke bridge'e paralel olduğunda perp yönde
+      stroke uzunluğunu ölçür (200+ px) → kama artifakti oluşur.
+
+    Overlap:
+      Köşeler skeleton noktasında; skeleton her iki edge pikselinin içindedir,
+      dolayısıyla bridge doğal olarak her iki gövdenin içine overlap eder.
+
+    Yamuk (trapezoid):
+      İki uçtaki hwi ≠ hwb ise bridge trapezoid olur; her uç kendi stroke
+      genişliğiyle uyumlu.
     """
     black = edt_black > 0
 
     dx_raw, dy_raw = float(rx - ix), float(ry - iy)
     L = math.hypot(dx_raw, dy_raw)
     if L < 0.5:
-        r = max(floor_hw, 1.0) / scale
+        _, _, hwi = _trace_skeleton(edt_black, iy, ix)
+        r = max(float(hwi), floor_hw) / scale
         return f'<circle cx="{ix/scale:.2f}" cy="{iy/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
 
-    ux, uy = dx_raw / L, dy_raw / L   # ada → gövde birim vektörü
-    pdx, pdy = -uy, ux                 # dik birim vektör
+    ux, uy = dx_raw / L, dy_raw / L   # ada → gövde birim vektörü (bridge ekseni)
+    pdx, pdy = -uy, ux                 # bridge'e dik birim vektör
 
-    # Skeleton'dan overlap miktarını hesapla
-    _, _, hwi = _trace_skeleton(edt_black, iy, ix)
-    _, _, hwb = _trace_skeleton(edt_black, ry, rx)
-
-    # Skeleton noktaları — EDT garantili siyah, hwi = o noktadan en yakın beyaza mesafe
+    # Skeleton noktaları ve EDT inscribed circle yarıçapları
     siy_v, six_v, hwi = _trace_skeleton(edt_black, iy, ix)
     sby_v, sbx_v, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # Bridge eksenini skeleton'dan skeleton'a hesapla (edge pixel'e göre daha kararlı)
-    sdx, sdy = sbx_v - six_v, sby_v - siy_v
-    sL = math.hypot(sdx, sdy)
-    if sL < 0.5:
-        r = max((hwi + hwb) / 2.0, floor_hw) / scale
+    # Degenerate durum: skeletonlar üst üste
+    if math.hypot(sbx_v - six_v, sby_v - siy_v) < 0.5:
+        r = max((float(hwi) + float(hwb)) / 2.0, floor_hw) / scale
         return f'<circle cx="{six_v/scale:.2f}" cy="{siy_v/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
-    sux, suy = sdx / sL, sdy / sL
-    spdx, spdy = -suy, sux   # skeleton bridge'e dik birim vektör
 
-    # Gerçek perp genişliği skeleton'dan ölç (siyah garantili başlangıç)
-    hw_ip, hw_in = _perp_widths(black, six_v, siy_v, spdx, spdy)
-    hw_bp, hw_bn = _perp_widths(black, sbx_v, sby_v, spdx, spdy)
-    hw_ip = min(max(hw_ip, floor_hw), max_half_svg * scale)
-    hw_in = min(max(hw_in, floor_hw), max_half_svg * scale)
-    hw_bp = min(max(hw_bp, floor_hw), max_half_svg * scale)
-    hw_bn = min(max(hw_bn, floor_hw), max_half_svg * scale)
+    # Bridge half-width: EDT inscribed circle radius (her yönde siyahta kalır)
+    hw_i = min(max(float(hwi), floor_hw), max_half_svg * scale)
+    hw_b = min(max(float(hwb), floor_hw), max_half_svg * scale)
 
-    # Overlap: skeleton'dan gap'e doğru sux yönünde (overlap = gap'i kapat + biraz geç)
-    # Ada: +sux (gap'e doğru) + gap'i geç için ovlp_i ekstra
-    # Gövde: -sux (gap'e doğru) + ovlp_b ekstra
-    ovlp_i = max(hwi * 0.8, floor_hw * scale, 2.0)
-    ovlp_b = max(hwb * 0.8, floor_hw * scale, 2.0)
+    # Yamuk köşeler: skeleton ± bridge_perp * hw
+    # Skeleton → edge yönündeki overlap bridge'e dahil (skeleton edge içindedir)
+    Ti_fx = (six_v + pdx * hw_i) / scale;  Ti_fy = (siy_v + pdy * hw_i) / scale
+    Bi_fx = (six_v - pdx * hw_i) / scale;  Bi_fy = (siy_v - pdy * hw_i) / scale
+    Tb_fx = (sbx_v + pdx * hw_b) / scale;  Tb_fy = (sby_v + pdy * hw_b) / scale
+    Bb_fx = (sbx_v - pdx * hw_b) / scale;  Bb_fy = (sby_v - pdy * hw_b) / scale
 
-    # Uç merkez noktaları: skeleton'dan overlap kadar gap yönünde
-    # (skeleton içeride, gap'e ovlp_i kadar yaklaşıyoruz → hâlâ siyahta)
-    cx_i = six_v + sux * ovlp_i;  cy_i = siy_v + suy * ovlp_i   # ada, gap'e yakın
-    cx_b = sbx_v - sux * ovlp_b;  cy_b = sby_v - suy * ovlp_b   # gövde, gap'e yakın
-
-    # 4 köşe: merkez ± perp offset (skeleton perp'ten ölçülen, güvenilir)
-    Ti_fx = (cx_i + spdx * hw_ip) / scale;  Ti_fy = (cy_i + spdy * hw_ip) / scale
-    Bi_fx = (cx_i - spdx * hw_in) / scale;  Bi_fy = (cy_i - spdy * hw_in) / scale
-    Tb_fx = (cx_b + spdx * hw_bp) / scale;  Tb_fy = (cy_b + spdy * hw_bp) / scale
-    Bb_fx = (cx_b - spdx * hw_bn) / scale;  Bb_fy = (cy_b - spdy * hw_bn) / scale
-
-    # Yamuk path: Ti → Tb → Bb → Bi → kapat
     d_str = (f"M{Ti_fx:.2f},{Ti_fy:.2f} L{Tb_fx:.2f},{Tb_fy:.2f} "
              f"L{Bb_fx:.2f},{Bb_fy:.2f} L{Bi_fx:.2f},{Bi_fy:.2f} Z")
     return f'<path d="{d_str}" fill="{color}"/>'
