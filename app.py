@@ -605,23 +605,17 @@ def _ray_to_exit(black_mask, cx, cy, dx, dy, max_steps=400):
 def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
                  floor_hw=2.0, max_half_svg=40.0):
     """
-    EDT inscribed circle garantisiyle yamuk köprü üretir.
+    Edge-pixel tabanlı, inscribed circle garantili yamuk köprü.
 
-    Temel ilke:
-      hwi = skeleton noktasındaki EDT değeri = herhangi bir yönde o noktadan
-      siyah içinde kalma garantili maksimum yarıçap (inscribed circle radius).
+    Köşe pozisyonu analizi:
+      Köşe = (ix - ux*ovlp_i + pdx*hw_i, iy - uy*ovlp_i + pdy*hw_i)
+      Skeleton'a uzaklık = hwi * sqrt((1-α)² + β²)
+      α = ovlp/hwi = 0.50, β = hw/hwi = 0.85
+      → sqrt(0.25 + 0.7225) = 0.986 < 1.0 → inscribed circle içinde → siyah garantisi
 
-      Köşe = skeleton ± pdx * hwi → mesafe = hwi < EDT değeri → siyah garantisi.
-      _perp_widths KULLANILMAZ: stroke bridge'e paralel olduğunda perp yönde
-      stroke uzunluğunu ölçür (200+ px) → kama artifakti oluşur.
-
-    Overlap:
-      Köşeler skeleton noktasında; skeleton her iki edge pikselinin içindedir,
-      dolayısıyla bridge doğal olarak her iki gövdenin içine overlap eder.
-
-    Yamuk (trapezoid):
-      İki uçtaki hwi ≠ hwb ise bridge trapezoid olur; her uç kendi stroke
-      genişliğiyle uyumlu.
+      Skeleton tabanlı anchor KULLANILMAZ: skeleton gövdenin derinlerine uzanır;
+      geniş bir trapezoid oluştuğunda bitişik beyaz alanları kaplayarak kama oluşturur.
+      Edge pixel anchor → bridge yalnızca gap bölgesiyle sınırlı kalır.
     """
     black = edt_black > 0
 
@@ -635,25 +629,29 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     ux, uy = dx_raw / L, dy_raw / L   # ada → gövde birim vektörü (bridge ekseni)
     pdx, pdy = -uy, ux                 # bridge'e dik birim vektör
 
-    # Skeleton noktaları ve EDT inscribed circle yarıçapları
-    siy_v, six_v, hwi = _trace_skeleton(edt_black, iy, ix)
-    sby_v, sbx_v, hwb = _trace_skeleton(edt_black, ry, rx)
+    # Skeleton'dan hwi al (EDT inscribed circle radius)
+    _, _, hwi = _trace_skeleton(edt_black, iy, ix)
+    _, _, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # Degenerate durum: skeletonlar üst üste
-    if math.hypot(sbx_v - six_v, sby_v - siy_v) < 0.5:
-        r = max((float(hwi) + float(hwb)) / 2.0, floor_hw) / scale
-        return f'<circle cx="{six_v/scale:.2f}" cy="{siy_v/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
+    # α = overlap/hwi = 0.50  →  gövde içine ne kadar gir
+    # β = hw/hwi     = 0.85  →  dik yönde ne kadar genişle
+    # α² + β² = 0.25 + 0.7225 = 0.9725 < 1  →  corner inscribed circle içinde
+    _ALPHA, _BETA = 0.50, 0.85
 
-    # Bridge half-width: EDT inscribed circle radius (her yönde siyahta kalır)
-    hw_i = min(max(float(hwi), floor_hw), max_half_svg * scale)
-    hw_b = min(max(float(hwb), floor_hw), max_half_svg * scale)
+    ovlp_i = max(float(hwi) * _ALPHA, floor_hw * scale, 2.0)
+    ovlp_b = max(float(hwb) * _ALPHA, floor_hw * scale, 2.0)
+    hw_i   = min(max(float(hwi) * _BETA, floor_hw), max_half_svg * scale)
+    hw_b   = min(max(float(hwb) * _BETA, floor_hw), max_half_svg * scale)
 
-    # Yamuk köşeler: skeleton ± bridge_perp * hw
-    # Skeleton → edge yönündeki overlap bridge'e dahil (skeleton edge içindedir)
-    Ti_fx = (six_v + pdx * hw_i) / scale;  Ti_fy = (siy_v + pdy * hw_i) / scale
-    Bi_fx = (six_v - pdx * hw_i) / scale;  Bi_fy = (siy_v - pdy * hw_i) / scale
-    Tb_fx = (sbx_v + pdx * hw_b) / scale;  Tb_fy = (sby_v + pdy * hw_b) / scale
-    Bb_fx = (sbx_v - pdx * hw_b) / scale;  Bb_fy = (sby_v - pdy * hw_b) / scale
+    # Köşeler: edge pixel'den overlap kadar içeri gir, dik yönde hw kadar genişle
+    Ti_fx = (ix - ux * ovlp_i + pdx * hw_i) / scale
+    Ti_fy = (iy - uy * ovlp_i + pdy * hw_i) / scale
+    Bi_fx = (ix - ux * ovlp_i - pdx * hw_i) / scale
+    Bi_fy = (iy - uy * ovlp_i - pdy * hw_i) / scale
+    Tb_fx = (rx + ux * ovlp_b + pdx * hw_b) / scale
+    Tb_fy = (ry + uy * ovlp_b + pdy * hw_b) / scale
+    Bb_fx = (rx + ux * ovlp_b - pdx * hw_b) / scale
+    Bb_fy = (ry + uy * ovlp_b - pdy * hw_b) / scale
 
     d_str = (f"M{Ti_fx:.2f},{Ti_fy:.2f} L{Tb_fx:.2f},{Tb_fy:.2f} "
              f"L{Bb_fx:.2f},{Bb_fy:.2f} L{Bi_fx:.2f},{Bi_fy:.2f} Z")
