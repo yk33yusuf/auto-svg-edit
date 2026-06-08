@@ -632,45 +632,43 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     _, _, hwi = _trace_skeleton(edt_black, iy, ix)
     _, _, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # Skeleton noktaları (EDT garantili siyah)
+    # Skeleton noktaları — EDT garantili siyah, hwi = o noktadan en yakın beyaza mesafe
     siy_v, six_v, hwi = _trace_skeleton(edt_black, iy, ix)
     sby_v, sbx_v, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # ── Perp genişlik: skeleton + edge pixel'den ikisini de ölç, tutarlı olanı al ──
-    # Skeleton ölçümü: güvenilir ama gap yüzünü değil stroke ortasını temsil eder
-    # Edge ölçümü: gap yüzünü doğru bulur ama eğimli stroke'larda 0 dönebilir
-    # Kural: edge < skeleton'ın %25'i ise skeleton'u kullan (boundary artefaktı)
-    hw_ip_s, hw_in_s = _perp_widths(black, six_v, siy_v, pdx, pdy)
-    hw_ip_e, hw_in_e = _perp_widths(black, ix, iy, pdx, pdy)
-    hw_bp_s, hw_bn_s = _perp_widths(black, sbx_v, sby_v, pdx, pdy)
-    hw_bp_e, hw_bn_e = _perp_widths(black, rx, ry, pdx, pdy)
+    # Bridge eksenini skeleton'dan skeleton'a hesapla (edge pixel'e göre daha kararlı)
+    sdx, sdy = sbx_v - six_v, sby_v - siy_v
+    sL = math.hypot(sdx, sdy)
+    if sL < 0.5:
+        r = max((hwi + hwb) / 2.0, floor_hw) / scale
+        return f'<circle cx="{six_v/scale:.2f}" cy="{siy_v/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
+    sux, suy = sdx / sL, sdy / sL
+    spdx, spdy = -suy, sux   # skeleton bridge'e dik birim vektör
 
-    def pick(edge_val, skel_val):
-        """Edge değeri skeleton'ın %25'inden fazlaysa kullan; yoksa skeleton'a dön."""
-        return edge_val if edge_val >= skel_val * 0.25 else skel_val
+    # Gerçek perp genişliği skeleton'dan ölç (siyah garantili başlangıç)
+    hw_ip, hw_in = _perp_widths(black, six_v, siy_v, spdx, spdy)
+    hw_bp, hw_bn = _perp_widths(black, sbx_v, sby_v, spdx, spdy)
+    hw_ip = min(max(hw_ip, floor_hw), max_half_svg * scale)
+    hw_in = min(max(hw_in, floor_hw), max_half_svg * scale)
+    hw_bp = min(max(hw_bp, floor_hw), max_half_svg * scale)
+    hw_bn = min(max(hw_bn, floor_hw), max_half_svg * scale)
 
-    hw_ip = min(max(pick(hw_ip_e, hw_ip_s), floor_hw), max_half_svg * scale)
-    hw_in = min(max(pick(hw_in_e, hw_in_s), floor_hw), max_half_svg * scale)
-    hw_bp = min(max(pick(hw_bp_e, hw_bp_s), floor_hw), max_half_svg * scale)
-    hw_bn = min(max(pick(hw_bn_e, hw_bn_s), floor_hw), max_half_svg * scale)
-
-    # Overlap miktarları
+    # Overlap: skeleton'dan gap'e doğru sux yönünde (overlap = gap'i kapat + biraz geç)
+    # Ada: +sux (gap'e doğru) + gap'i geç için ovlp_i ekstra
+    # Gövde: -sux (gap'e doğru) + ovlp_b ekstra
     ovlp_i = max(hwi * 0.8, floor_hw * scale, 2.0)
     ovlp_b = max(hwb * 0.8, floor_hw * scale, 2.0)
 
-    # Ada gap-face köşeleri: edge pixel konumunda, perp offset uygulanmış
-    Ti_x = ix + pdx * hw_ip;  Ti_y = iy + pdy * hw_ip
-    Bi_x = ix - pdx * hw_in;  Bi_y = iy - pdy * hw_in
+    # Uç merkez noktaları: skeleton'dan overlap kadar gap yönünde
+    # (skeleton içeride, gap'e ovlp_i kadar yaklaşıyoruz → hâlâ siyahta)
+    cx_i = six_v + sux * ovlp_i;  cy_i = siy_v + suy * ovlp_i   # ada, gap'e yakın
+    cx_b = sbx_v - sux * ovlp_b;  cy_b = sby_v - suy * ovlp_b   # gövde, gap'e yakın
 
-    # Gövde gap-face köşeleri
-    Tb_x = rx + pdx * hw_bp;  Tb_y = ry + pdy * hw_bp
-    Bb_x = rx - pdx * hw_bn;  Bb_y = ry - pdy * hw_bn
-
-    # Overlap: gap yüzünden içeri gir (-ux ada, +ux gövde)
-    Ti_fx = (Ti_x - ux * ovlp_i) / scale;  Ti_fy = (Ti_y - uy * ovlp_i) / scale
-    Bi_fx = (Bi_x - ux * ovlp_i) / scale;  Bi_fy = (Bi_y - uy * ovlp_i) / scale
-    Tb_fx = (Tb_x + ux * ovlp_b) / scale;  Tb_fy = (Tb_y + uy * ovlp_b) / scale
-    Bb_fx = (Bb_x + ux * ovlp_b) / scale;  Bb_fy = (Bb_y + uy * ovlp_b) / scale
+    # 4 köşe: merkez ± perp offset (skeleton perp'ten ölçülen, güvenilir)
+    Ti_fx = (cx_i + spdx * hw_ip) / scale;  Ti_fy = (cy_i + spdy * hw_ip) / scale
+    Bi_fx = (cx_i - spdx * hw_in) / scale;  Bi_fy = (cy_i - spdy * hw_in) / scale
+    Tb_fx = (cx_b + spdx * hw_bp) / scale;  Tb_fy = (cy_b + spdy * hw_bp) / scale
+    Bb_fx = (cx_b - spdx * hw_bn) / scale;  Bb_fy = (cy_b - spdy * hw_bn) / scale
 
     # Yamuk path: Ti → Tb → Bb → Bi → kapat
     d_str = (f"M{Ti_fx:.2f},{Ti_fy:.2f} L{Tb_fx:.2f},{Tb_fy:.2f} "
