@@ -632,47 +632,39 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     _, _, hwi = _trace_skeleton(edt_black, iy, ix)
     _, _, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # ── Skeleton noktaları (EDT garantili siyah, stroke merkezi) ──
-    siy_v, six_v, hwi = _trace_skeleton(edt_black, iy, ix)
-    sby_v, sbx_v, hwb = _trace_skeleton(edt_black, ry, rx)
+    # Skeleton half-width: overlap miktarını belirlemek için
+    _, _, hwi = _trace_skeleton(edt_black, iy, ix)
+    _, _, hwb = _trace_skeleton(edt_black, ry, rx)
 
-    # Skeleton'dan dik yönde gerçek stroke genişliğini ölç
-    # (EDT yarıçapı değil, o yöndeki gerçek piksel sayısı)
-    hw_ip, hw_in = _perp_widths(black, six_v, siy_v, pdx, pdy)
-    hw_bp, hw_bn = _perp_widths(black, sbx_v, sby_v, pdx, pdy)
+    # ── Gap-face'te perp genişliği ölç ──
+    # (ix,iy) ve (rx,ry) ZATEN gap sınırında, garantili siyah.
+    # Skeleton yerine buradan ölçmek → tam gap yüzündeki stroke genişliğini verir.
+    # _ray_to_exit KULLANMA: eğrisel stroke'larda +ux yönünde devasa ext döndürüyor.
+    hw_ip, hw_in = _perp_widths(black, ix, iy, pdx, pdy)
+    hw_bp, hw_bn = _perp_widths(black, rx, ry, pdx, pdy)
     hw_ip = min(max(hw_ip, floor_hw), max_half_svg * scale)
     hw_in = min(max(hw_in, floor_hw), max_half_svg * scale)
     hw_bp = min(max(hw_bp, floor_hw), max_half_svg * scale)
     hw_bn = min(max(hw_bn, floor_hw), max_half_svg * scale)
 
-    # ── Ada köşeleri: skeleton + perp offset → içeriden gap yüzüne uzan ──
-    # Skeleton noktası stroke merkezinde (siyah garantili).
-    # +ux yönünde giderek her köşenin gap'e bakan yüzünü bul.
-    Ti_x = six_v + pdx * hw_ip;  Ti_y = siy_v + pdy * hw_ip
-    Bi_x = six_v - pdx * hw_in;  Bi_y = siy_v - pdy * hw_in
+    # Ada gap-face köşeleri (gap sınırında, siyah garantili)
+    Ti_x = ix + pdx * hw_ip;  Ti_y = iy + pdy * hw_ip
+    Bi_x = ix - pdx * hw_in;  Bi_y = iy - pdy * hw_in
 
-    ext_Ti = _ray_to_exit(black, Ti_x, Ti_y, ux, uy)   # gap'e kaç px kaldı
-    ext_Bi = _ray_to_exit(black, Bi_x, Bi_y, ux, uy)
+    # Gövde gap-face köşeleri
+    Tb_x = rx + pdx * hw_bp;  Tb_y = ry + pdy * hw_bp
+    Bb_x = rx - pdx * hw_bn;  Bb_y = ry - pdy * hw_bn
 
-    # Gap yüzünden -ux yönünde ovlp kadar çekil → adanın içine gömül
-    ovlp_i = max(hwi * 0.8, floor_hw * scale, 3.0)
-    Ti_fx = (Ti_x + ux * ext_Ti - ux * ovlp_i) / scale
-    Ti_fy = (Ti_y + uy * ext_Ti - uy * ovlp_i) / scale
-    Bi_fx = (Bi_x + ux * ext_Bi - ux * ovlp_i) / scale
-    Bi_fy = (Bi_y + uy * ext_Bi - uy * ovlp_i) / scale
+    # Overlap: gap yüzünden her vücudun içine sabit miktarda gir
+    # Ada: -ux (gap'ten uzaklaş, adanın içine)
+    # Gövde: +ux (gap'ten uzaklaş, gövdenin içine)
+    ovlp_i = max(hwi * 0.8, floor_hw * scale, 2.0)
+    ovlp_b = max(hwb * 0.8, floor_hw * scale, 2.0)
 
-    # ── Gövde köşeleri: aynı mantık, -ux yönünde gap'e uzan ──
-    Tb_x = sbx_v + pdx * hw_bp;  Tb_y = sby_v + pdy * hw_bp
-    Bb_x = sbx_v - pdx * hw_bn;  Bb_y = sby_v - pdy * hw_bn
-
-    ext_Tb = _ray_to_exit(black, Tb_x, Tb_y, -ux, -uy)
-    ext_Bb = _ray_to_exit(black, Bb_x, Bb_y, -ux, -uy)
-
-    ovlp_b = max(hwb * 0.8, floor_hw * scale, 3.0)
-    Tb_fx = (Tb_x - ux * ext_Tb + ux * ovlp_b) / scale
-    Tb_fy = (Tb_y - uy * ext_Tb + uy * ovlp_b) / scale
-    Bb_fx = (Bb_x - ux * ext_Bb + ux * ovlp_b) / scale
-    Bb_fy = (Bb_y - uy * ext_Bb + uy * ovlp_b) / scale
+    Ti_fx = (Ti_x - ux * ovlp_i) / scale;  Ti_fy = (Ti_y - uy * ovlp_i) / scale
+    Bi_fx = (Bi_x - ux * ovlp_i) / scale;  Bi_fy = (Bi_y - uy * ovlp_i) / scale
+    Tb_fx = (Tb_x + ux * ovlp_b) / scale;  Tb_fy = (Tb_y + uy * ovlp_b) / scale
+    Bb_fx = (Bb_x + ux * ovlp_b) / scale;  Bb_fy = (Bb_y + uy * ovlp_b) / scale
 
     # Yamuk path: Ti → Tb → Bb → Bi → kapat
     d_str = (f"M{Ti_fx:.2f},{Ti_fy:.2f} L{Tb_fx:.2f},{Tb_fy:.2f} "
