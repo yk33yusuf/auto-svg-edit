@@ -1346,7 +1346,7 @@ $('cleanKaydet').addEventListener('click',  ()=>doSave(()=>workingSvg,$('cleanKa
 $('composeKaydet').addEventListener('click',()=>doSave(cCompose,$('composeKaydet')));
 $('manualKaydet').addEventListener('click', ()=>doSave(currentSvg,$('manualKaydet')));
 
-if(window!==window.top)$('kaydet').style.display='';
+if(window!==window.top)$('kaydet').style.display='inline-block';
 $('kaydet').addEventListener('click',()=>{
   if(!lastSvg){alert('Önce bir işlem yapın.');return;}
   window.parent.postMessage({type:'svg-save',svg:lastSvg},'*');
