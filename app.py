@@ -222,6 +222,50 @@ def extract_svg_header(content):
     raise ValueError("SVG boyutlari (width/height/viewBox) okunamadi.")
 
 
+def extract_viewbox_origin(content):
+    """viewBox'in min-x/min-y'sini dondurur (yoksa 0,0)."""
+    m = re.search(r"<svg\b[^>]*>", content, re.IGNORECASE)
+    if m:
+        vb = re.search(r'viewBox="([^"]+)"', m.group(0))
+        if vb:
+            parts = [float(x) for x in re.split(r"[ ,]+", vb.group(1).strip())]
+            if len(parts) == 4:
+                return parts[0], parts[1]
+    return 0.0, 0.0
+
+
+def svg_content_bbox(content, threshold=10.0, scale=2.0):
+    """
+    SVG icerigin gercek (bos/beyaz kenarsiz) sinirlayici kutusunu SVG biriminde dondurur.
+    trim_png_bytes ile ayni mantik (alpha + beyaza yakinlik), ama viewBox offsetini
+    de hesaba katarak SVG koordinat sistemine geri cevirir.
+    """
+    header, W, H = extract_svg_header(content)
+    vbx, vby = extract_viewbox_origin(content)
+    png = cairosvg.svg2png(
+        bytestring=content.encode("utf-8"),
+        output_width=int(W * scale),
+        output_height=int(H * scale),
+        background_color="white",
+    )
+    im = Image.open(io.BytesIO(png)).convert("RGBA")
+    arr = np.asarray(im).astype(int)
+    rgb, alpha = arr[..., :3], arr[..., 3]
+    near_white = (rgb > (255 - threshold)).all(axis=2)
+    content_mask = (alpha > threshold) & ~near_white
+    ys, xs = np.where(content_mask)
+    if xs.size == 0:
+        return {"x": vbx, "y": vby, "w": W, "h": H}
+    x0 = vbx + xs.min() / scale
+    y0 = vby + ys.min() / scale
+    x1 = vbx + (xs.max() + 1) / scale
+    y1 = vby + (ys.max() + 1) / scale
+    return {
+        "x": round(x0, 2), "y": round(y0, 2),
+        "w": round(x1 - x0, 2), "h": round(y1 - y0, 2),
+    }
+
+
 def render_to_gray(svg_text, w, h, scale):
     png = cairosvg.svg2png(
         bytestring=svg_text.encode("utf-8"),
@@ -884,6 +928,7 @@ def info():
             "POST /analyze": "silmeden ada tespiti (JSON rapor)",
             "POST /clean": "temizlenmis SVG dondurur (image/svg+xml)",
             "POST /bridge": "adalari silmez, koprulerle birlestirir (tek parca)",
+            "POST /bbox": "icerigin gercek (bos kenarsiz) sinirlayici kutusunu SVG biriminde dondurur",
             "POST /svg2png": "SVG -> PNG (opsiyonel trim)",
             "POST /trim": "raster goruntu bos kenarini kirpar",
             "POST /text": "stencil fontla tek parca kesilebilir yazi (SVG)",
@@ -963,6 +1008,22 @@ async def bridge(request: Request,
             "X-Components-After": str(report["components_after"]),
         },
     )
+
+
+@app.post("/bbox")
+async def bbox_endpoint(request: Request,
+                        file: UploadFile | None = File(default=None),
+                        threshold: float = Query(10.0, description="0-255 bos kenar toleransi"),
+                        scale: float = Query(2.0, description="render hassasiyeti")):
+    """SVG icerigin gercek (bos kenarsiz) sinirlayici kutusunu SVG biriminde dondurur."""
+    svg = await read_svg(request, file)
+    try:
+        box = svg_content_bbox(svg, threshold, scale)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except Exception as e:
+        raise HTTPException(422, f"bbox hatasi: {e}")
+    return JSONResponse(box)
 
 
 @app.post("/svg2png")

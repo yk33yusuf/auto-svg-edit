@@ -338,8 +338,13 @@ button{font-family:inherit;cursor:pointer}
             <button class="btn-icon shapetype-btn" data-shapetype="semi" title="Yarım daire / kavis">◠</button>
           </div>
         </div>
-        <div class="field"><label>Mevcut Oran (Y/G) <span class="val" id="curRatioVal">—</span></label></div>
-        <div class="field"><label>Hedef Oran (Y/G)</label><input type="number" id="targetRatio" step="0.01" min="0.1" placeholder="örn. 1.8"></div>
+        <div class="field">
+          <label>1. Önce kenar boşluğunu kırp</label>
+          <button class="btn-icon" id="trimEdges" style="width:100%;justify-content:center" disabled>✂ Kenar Boşluğunu Kırp</button>
+          <p class="note" style="margin-top:4px">Oran hesabı, tasarımın gerçek (boşluksuz) sınırına göre doğru çıksın diye önce bunu çalıştır.</p>
+        </div>
+        <div class="field"><label>2. Mevcut Oran (Y/G) <span class="val" id="curRatioVal">—</span></label></div>
+        <div class="field"><label>3. Hedef Oran (Y/G)</label><input type="number" id="targetRatio" step="0.01" min="0.1" placeholder="örn. 1.8"></div>
         <div id="ratioInfo" style="display:none;font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6"></div>
         <div class="btn-row" style="flex-wrap:wrap;margin-bottom:12px">
           <button class="btn-icon accent" id="ratioExpand" disabled>↕ Genişlet</button>
@@ -532,6 +537,32 @@ function applyRatio(which){
   updateRatioUI();
 }
 
+// Tasarımın gerçek (boşluksuz) içerik sınırına göre viewBox'ı kırpar.
+// Oran hesabının ve Genişlet/Daralt'ın doğru çalışması için önce bu çalıştırılmalı.
+async function trimToContent(){
+  if(!workingSvg) return;
+  const btn = $('trimEdges'); const old = btn.textContent;
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Kırpılıyor';
+  try{
+    const fd = new FormData();
+    fd.append('file', new Blob([workingSvg],{type:'image/svg+xml'}), fileName);
+    const res = await fetch('/bbox?threshold=10&scale=2', {method:'POST', body:fd});
+    if(!res.ok) throw new Error((await res.json()).detail || 'bbox alınamadı');
+    const box = await res.json();
+    workingSvg = setSvgViewBox(workingSvg, box);
+    lastSvg = workingSvg;
+    updateRightCanvas();
+    renderShapes();
+    updateRatioUI();
+    clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150);
+  }catch(e){
+    $('merr').textContent = '⚠ '+e.message; $('merr').style.display='block';
+  }finally{
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+$('trimEdges').addEventListener('click', trimToContent);
+
 function renderSvg(elId, text){
   const el = $(elId);
   if (el._dispUrl){ URL.revokeObjectURL(el._dispUrl); el._dispUrl=null; }
@@ -639,7 +670,7 @@ function initAllTools(text, name){
   mbShapes=[]; mbSelId=null; mbDrag=null; mbSeq=0; mbShapeType='rect';
   document.querySelectorAll('[data-shapetype]').forEach(x=>x.classList.toggle('active', x.dataset.shapetype==='rect'));
   $('mno-base').style.display='none'; $('mcontrols').style.display='';
-  ['mdlsvg','mdlpng','mclear','mundo','manualKaydet'].forEach(id=>$(id).disabled=false);
+  ['mdlsvg','mdlpng','mclear','mundo','manualKaydet','trimEdges'].forEach(id=>$(id).disabled=false);
   $('mmarkers').innerHTML='';
   $('mbshapes').style.pointerEvents = isManualBridgeActive() ? 'auto' : 'none';
   renderShapes();
