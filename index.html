@@ -209,6 +209,7 @@ button{font-family:inherit;cursor:pointer}
   <div class="tb-file" id="fname">Dosya yüklenmedi</div>
   <div class="tb-right">
     <div class="tb-status"><div class="tb-sdot"></div>aktif</div>
+    <button id="mundo" class="btn-icon" disabled title="Kırp/Genişlet/Daralt/şekil — son işlemi geri alır">↩ Geri al</button>
     <button id="kaydet">↑ Kaydet</button>
   </div>
 </div>
@@ -339,9 +340,9 @@ button{font-family:inherit;cursor:pointer}
           </div>
         </div>
         <div class="field">
-          <label>1. Önce kenar boşluğunu kırp</label>
+          <label>1. Kenar boşluğunu kırp</label>
           <button class="btn-icon" id="trimEdges" style="width:100%;justify-content:center" disabled>✂ Kenar Boşluğunu Kırp</button>
-          <p class="note" style="margin-top:4px">Oran hesabı, tasarımın gerçek (boşluksuz) sınırına göre doğru çıksın diye önce bunu çalıştır.</p>
+          <p class="note" style="margin-top:4px">Tasarım açıldığında otomatik çalışır. Sonradan şekil ekler/genişletirsen tekrar bas.</p>
         </div>
         <div class="field"><label>2. Mevcut Oran (Y/G) <span class="val" id="curRatioVal">—</span></label></div>
         <div class="field"><label>3. Hedef Oran (Y/G)</label><input type="number" id="targetRatio" step="0.01" min="0.1" placeholder="örn. 1.8"></div>
@@ -355,7 +356,6 @@ button{font-family:inherit;cursor:pointer}
           <div style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-top:2px">kalan parça</div>
         </div>
         <div class="btn-row" style="flex-wrap:wrap">
-          <button class="btn-icon" id="mundo" disabled title="Kırp/Genişlet/Daralt/şekil — son işlemi geri alır">↩ Geri al</button>
           <button class="btn-icon" id="mclear" disabled>Temizle</button>
           <button class="btn-icon ok" id="mdlsvg" disabled>↓ SVG</button>
           <button class="btn-icon ok" id="mdlpng" disabled>↓ PNG</button>
@@ -655,7 +655,7 @@ function loadFile(f){
   if(!/svg/i.test(f.type)&&!/\.svg$/i.test(f.name)){showErr('Lütfen bir .svg dosyası seçin.');return;}
   fileName=f.name;
   const r=new FileReader();
-  r.onload=()=>initAllTools(r.result,f.name);
+  r.onload=()=>{ initAllTools(r.result,f.name); trimToContent(); };
   r.readAsText(f);
 }
 
@@ -1359,6 +1359,9 @@ $('kaydet').addEventListener('click',()=>{
         }
       }catch(we){console.warn('Working SVG yüklenemedi:',we.message);}
     }
+
+    // Tasarım ilk açıldığında kenar boşluğunu otomatik kırp
+    await trimToContent();
   }catch(e){console.error('SVG param yüklenemedi:',e.message);}
 })();
 </script>
