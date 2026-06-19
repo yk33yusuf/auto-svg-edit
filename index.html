@@ -174,7 +174,23 @@ button{font-family:inherit;cursor:pointer}
 
 /* ── MANUAL BRIDGE INDICATORS ── */
 .mb-island{position:absolute;border:2px solid var(--danger);border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 3px rgba(239,68,68,.15);pointer-events:none}
-.mb-dot{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--accent);transform:translate(-50%,-50%);box-shadow:0 0 0 3px rgba(240,120,32,.3);z-index:5;pointer-events:none}
+
+/* ── MANUAL SHAPE TOOL (sürükle-bırak hazır şekiller) ── */
+.mb-shape{position:absolute;cursor:move;pointer-events:auto;z-index:6}
+.mb-shape.sel{outline:2px dashed var(--accent);outline-offset:1px}
+.mb-shape-fill{position:absolute;inset:0;background:rgba(240,120,32,.35);border:1px solid rgba(240,120,32,.7);box-sizing:border-box;pointer-events:none}
+.mb-handle{position:absolute;width:11px;height:11px;background:#fff;border:2px solid var(--accent);border-radius:3px;transform:translate(-50%,-50%);display:none;pointer-events:auto}
+.mb-shape.sel .mb-handle{display:block}
+.mb-handle.tl{left:0;top:0;cursor:nwse-resize}
+.mb-handle.tr{left:100%;top:0;cursor:nesw-resize}
+.mb-handle.bl{left:0;top:100%;cursor:nesw-resize}
+.mb-handle.br{left:100%;top:100%;cursor:nwse-resize}
+.mb-del{position:absolute;right:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;font-size:12px;font-weight:700;line-height:18px;text-align:center;cursor:pointer;display:none;pointer-events:auto;z-index:7}
+.mb-shape.sel .mb-del{display:block}
+
+/* ── Şekil paleti ── */
+.shapetype-btn{padding:6px 10px;font-size:14px;line-height:1}
+.shapetype-btn.active{color:var(--accent);border-color:rgba(240,120,32,.4);background:rgba(240,120,32,.08)}
 
 /* ── EMPTY STATE ── */
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:64vh;text-align:center;gap:10px}
@@ -311,7 +327,24 @@ button{font-family:inherit;cursor:pointer}
     <div class="sb-sec-body">
       <div id="mno-base" style="color:var(--muted);font-size:11px;margin-bottom:10px">Önce bir SVG yükleyin.</div>
       <div id="mcontrols" style="display:none">
-        <div class="field"><label>Köprü Kalınlığı <span class="val" id="mwVal">8</span></label><input type="range" id="mw" min="1" max="30" value="8" step="1"></div>
+        <div class="field">
+          <label>Şekil</label>
+          <div class="btn-row" style="flex-wrap:wrap">
+            <button class="btn-icon shapetype-btn active" data-shapetype="rect" title="Dikdörtgen">▭</button>
+            <button class="btn-icon shapetype-btn" data-shapetype="tri-up" title="Üçgen — yukarı (üst kenar için)">▲</button>
+            <button class="btn-icon shapetype-btn" data-shapetype="tri-down" title="Üçgen — aşağı (alt kenar için)">▼</button>
+            <button class="btn-icon shapetype-btn" data-shapetype="tri-left" title="Üçgen — sol (sol kenar için)">◀</button>
+            <button class="btn-icon shapetype-btn" data-shapetype="tri-right" title="Üçgen — sağ (sağ kenar için)">▶</button>
+            <button class="btn-icon shapetype-btn" data-shapetype="semi" title="Yarım daire / kavis">◠</button>
+          </div>
+        </div>
+        <div class="field"><label>Mevcut Oran (Y/G) <span class="val" id="curRatioVal">—</span></label></div>
+        <div class="field"><label>Hedef Oran (Y/G)</label><input type="number" id="targetRatio" step="0.01" min="0.1" placeholder="örn. 1.8"></div>
+        <div id="ratioInfo" style="display:none;font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6"></div>
+        <div class="btn-row" style="flex-wrap:wrap;margin-bottom:12px">
+          <button class="btn-icon accent" id="ratioExpand" disabled>↕ Genişlet</button>
+          <button class="btn-icon" id="ratioShrink" disabled>✂ Daralt</button>
+        </div>
         <div style="margin-bottom:12px">
           <div class="mComp-num" id="mComp" style="color:var(--text)">—</div>
           <div style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-top:2px">kalan parça</div>
@@ -323,7 +356,7 @@ button{font-family:inherit;cursor:pointer}
           <button class="btn-icon ok" id="mdlpng" disabled>↓ PNG</button>
           <button class="btn-icon accent" id="manualKaydet" disabled>↑ Kaydet</button>
         </div>
-        <p class="note">Sağ canvas'ta iki noktaya tıkla → köprü eklenir.</p>
+        <p class="note">Önce şekli seç, sonra sağ canvas'ta sürükleyerek çiz. Yerleştirdikten sonra tıkla → taşı veya köşelerden boyutlandır; çarpıya ya da Delete tuşuna basarak sil.</p>
       </div>
       <div class="err-box" id="merr"></div>
     </div>
@@ -373,8 +406,10 @@ button{font-family:inherit;cursor:pointer}
             <div id="afterSvg"></div>
             <!-- Island markers (ada temizle) -->
             <div id="markers" style="position:absolute;inset:0;pointer-events:none"></div>
-            <!-- Manual bridge pending dot -->
+            <!-- Manual bridge island highlights (read-only) -->
             <div id="mmarkers" style="position:absolute;inset:0;pointer-events:none"></div>
+            <!-- Manual shape tool: sürükle-bırak dikdörtgenler (etkileşimli) -->
+            <div id="mbshapes" style="position:absolute;inset:0;pointer-events:none"></div>
             <!-- Compose text layer overlays are appended here by JS -->
           </div>
         </div>
@@ -414,7 +449,7 @@ let islandStates = [], analyzedReport = null, cleanedBlobUrl = null;
 let layers = [], selId = null, seq = 0, cDeb = null;
 
 /* ── Elle köprü state ── */
-let mbBridges = [], mbPendingA = null, mbDeb = null;
+let mbShapes = [], mbSelId = null, mbSeq = 0, mbDrag = null, mbDeb = null, mbShapeType = 'rect';
 
 /* ── Helpers ── */
 function getViewBox(text){
@@ -422,6 +457,79 @@ function getViewBox(text){
   if(m){ const p=m[1].trim().split(/[ ,]+/).map(Number); if(p.length===4) return {x:p[0],y:p[1],w:p[2],h:p[3]}; }
   const wm=text.match(/width="?([\d.]+)/), hm=text.match(/height="?([\d.]+)/);
   return {x:0,y:0,w:wm?+wm[1]:1000,h:hm?+hm[1]:1000};
+}
+
+function fmtNum(n){ return Math.round(n*100)/100; }
+
+// Sadece kök <svg ...> etiketinin viewBox/width/height'ını değiştirir; içerik path'lerine dokunmaz.
+function setSvgViewBox(svg, vb){
+  const m = svg.match(/<svg\b[^>]*>/i);
+  if(!m) return svg;
+  let tag = m[0];
+  const vbStr = `viewBox="${fmtNum(vb.x)} ${fmtNum(vb.y)} ${fmtNum(vb.w)} ${fmtNum(vb.h)}"`;
+  tag = /viewBox="[^"]*"/i.test(tag) ? tag.replace(/viewBox="[^"]*"/i, vbStr) : tag.replace(/<svg/i, `<svg ${vbStr}`);
+  tag = /\swidth="[^"]*"/i.test(tag) ? tag.replace(/\swidth="[^"]*"/i, ` width="${fmtNum(vb.w)}"`) : tag.replace(/<svg([^>]*)>/i, `<svg$1 width="${fmtNum(vb.w)}">`);
+  tag = /\sheight="[^"]*"/i.test(tag) ? tag.replace(/\sheight="[^"]*"/i, ` height="${fmtNum(vb.h)}"`) : tag.replace(/<svg([^>]*)>/i, `<svg$1 height="${fmtNum(vb.h)}">`);
+  return svg.slice(0, m.index) + tag + svg.slice(m.index + m[0].length);
+}
+
+// Hedef orana (yükseklik/genişlik) göre iki seçenek hesaplar:
+//  - expand: kısa kalan ekseni simetrik olarak büyütür (içerik bozulmaz, tuval büyür)
+//  - shrink: uzun kalan ekseni simetrik olarak kırpar (görünür alan daralır)
+function ratioPlan(){
+  if(!workingSvg) return null;
+  const t = parseFloat($('targetRatio').value);
+  if(!t || t<=0) return null;
+  const vb = getViewBox(workingSvg);
+  const r0 = vb.h / vb.w;
+  let expand, shrink;
+  if (t >= r0){
+    const newH = t * vb.w, deltaH = newH - vb.h;
+    expand = { axis:'height', delta:deltaH, vb:{ x:vb.x, y:vb.y-deltaH/2, w:vb.w, h:newH } };
+    const newW = vb.h / t, deltaW = vb.w - newW;
+    shrink = { axis:'width', delta:deltaW, vb:{ x:vb.x+deltaW/2, y:vb.y, w:newW, h:vb.h } };
+  } else {
+    const newW = vb.h / t, deltaW = newW - vb.w;
+    expand = { axis:'width', delta:deltaW, vb:{ x:vb.x-deltaW/2, y:vb.y, w:newW, h:vb.h } };
+    const newH = t * vb.w, deltaH = vb.h - newH;
+    shrink = { axis:'height', delta:deltaH, vb:{ x:vb.x, y:vb.y+deltaH/2, w:vb.w, h:newH } };
+  }
+  return { vb, r0, t, expand, shrink };
+}
+
+function updateRatioUI(){
+  if(!workingSvg){
+    $('curRatioVal').textContent='—';
+    $('ratioInfo').style.display='none';
+    $('ratioExpand').disabled=true; $('ratioShrink').disabled=true;
+    return;
+  }
+  const vb0 = getViewBox(workingSvg);
+  $('curRatioVal').textContent = fmtNum(vb0.h/vb0.w);
+  const plan = ratioPlan();
+  if(!plan){
+    $('ratioInfo').style.display='none';
+    $('ratioExpand').disabled=true; $('ratioShrink').disabled=true;
+    return;
+  }
+  const axisLabel = a => a==='height' ? 'üst/alttan' : 'sol/sağdan';
+  $('ratioInfo').style.display='block';
+  $('ratioInfo').innerHTML =
+    `Genişlet: <b>${axisLabel(plan.expand.axis)}</b> +${fmtNum(plan.expand.delta)}px ekler<br>` +
+    `Daralt: <b>${axisLabel(plan.shrink.axis)}</b> -${fmtNum(plan.shrink.delta)}px kırpar`;
+  $('ratioExpand').disabled = plan.expand.delta < 0.01;
+  $('ratioShrink').disabled = plan.shrink.delta < 0.01;
+}
+
+function applyRatio(which){
+  const plan = ratioPlan();
+  if(!plan) return;
+  workingSvg = setSvgViewBox(workingSvg, plan[which].vb);
+  lastSvg = workingSvg;
+  updateRightCanvas();
+  renderShapes();
+  clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150);
+  updateRatioUI();
 }
 
 function renderSvg(elId, text){
@@ -435,12 +543,18 @@ function renderSvg(elId, text){
   el.appendChild(img);
 }
 
-// Returns workingSvg + any uncommitted bridge lines
+// Returns workingSvg + any uncommitted manuel şekiller (rect/polygon olarak gömülür)
 function currentSvg(){
   if (!workingSvg) return '';
-  if (!mbBridges.length && !mbPendingA) return workingSvg;
-  const w = $('mw').value;
-  const segs = mbBridges.map(b=>`<line x1="${b.x1.toFixed(2)}" y1="${b.y1.toFixed(2)}" x2="${b.x2.toFixed(2)}" y2="${b.y2.toFixed(2)}" stroke="#000000" stroke-width="${w}" stroke-linecap="round"/>`).join('');
+  const segs = mbShapes
+    .filter(s=>s.w>0.5 && s.h>0.5)
+    .map(s=>{
+      if (!s.type || s.type==='rect') return `<rect x="${fmtNum(s.x)}" y="${fmtNum(s.y)}" width="${fmtNum(s.w)}" height="${fmtNum(s.h)}" fill="#000000"/>`;
+      const pts = shapePoints(s).map(([px,py])=>`${fmtNum(px)},${fmtNum(py)}`).join(' ');
+      return `<polygon points="${pts}" fill="#000000"/>`;
+    })
+    .join('');
+  if (!segs) return workingSvg;
   const i = workingSvg.lastIndexOf('</svg>');
   return workingSvg.slice(0,i) + segs + workingSvg.slice(i);
 }
@@ -465,6 +579,10 @@ function toggleSec(name){
   head.classList.toggle('active',!isOpen);
   body.classList.toggle('open',!isOpen);
   head.querySelector('.arr').textContent = isOpen ? '▼' : '▲';
+  if(name==='manual'){
+    $('mbshapes').style.pointerEvents = isOpen ? 'none' : 'auto';
+    if(isOpen){ mbSelId=null; renderShapes(); }
+  }
 }
 
 /* ── File drop ── */
@@ -518,11 +636,16 @@ function initAllTools(text, name){
   $('cno-base').style.display='none'; $('ccontrols').style.display='';
 
   // Reset elle köprü
-  mbBridges=[]; mbPendingA=null;
+  mbShapes=[]; mbSelId=null; mbDrag=null; mbSeq=0; mbShapeType='rect';
+  document.querySelectorAll('[data-shapetype]').forEach(x=>x.classList.toggle('active', x.dataset.shapetype==='rect'));
   $('mno-base').style.display='none'; $('mcontrols').style.display='';
   ['mdlsvg','mdlpng','mclear','mundo','manualKaydet'].forEach(id=>$(id).disabled=false);
   $('mmarkers').innerHTML='';
+  $('mbshapes').style.pointerEvents = isManualBridgeActive() ? 'auto' : 'none';
+  renderShapes();
   $('mComp').textContent='—'; $('mComp').style.color=null;
+  $('targetRatio').value='';
+  updateRatioUI();
 }
 
 /* ── Scroll zoom + drag pan ── */
@@ -554,6 +677,7 @@ function initScrollZoom(canvasEl, innerId, labelId){
   canvasEl.addEventListener('mousedown',e=>{
     if(e.target.closest('.imark')) return;
     if(e.target.closest('.layer-ov')) return;
+    if(isManualBridgeActive() && e.target.closest('#mbshapes')) return;
     hasDragged=false;
     if(zoom<=1) return;
     dragging=true; dsx=e.clientX; dsy=e.clientY; dtx=tx; dty=ty;
@@ -889,47 +1013,185 @@ $('cdlpng').addEventListener('click',async()=>{
   }catch(e){cShowErr(e.message);}finally{b.disabled=false;b.textContent=old;}
 });
 
-/* ── Elle Köprü ── */
-$('mw').addEventListener('input',()=>{ $('mwVal').textContent=$('mw').value; updateRightCanvas(); });
+/* ── Elle Köprü: sürükle-bırak hazır şekiller ── */
+$('targetRatio').addEventListener('input', updateRatioUI);
+$('ratioExpand').addEventListener('click', ()=>applyRatio('expand'));
+$('ratioShrink').addEventListener('click', ()=>applyRatio('shrink'));
 
-// Clicks on the right canvas add bridge points (when elle köprü section is open)
-$('afterCanvas').addEventListener('click',e=>{
-  if(!workingSvg)return;
-  if(e.target.closest('.imark'))return;
-  if(e.target.closest('.layer-ov'))return;
-  if(afterZoom&&afterZoom.didDrag())return;
-  if(!isManualBridgeActive())return;
-
-  const imgEl=$('afterSvg').querySelector('img');
-  if(!imgEl)return;
-  const sr=imgEl.getBoundingClientRect();
-  if(e.clientX<sr.left||e.clientX>sr.right||e.clientY<sr.top||e.clientY>sr.bottom)return;
-
-  const vb=getViewBox(workingSvg);
-  const x=vb.x+(e.clientX-sr.left)/sr.width*vb.w;
-  const y=vb.y+(e.clientY-sr.top)/sr.height*vb.h;
-
-  if(!mbPendingA){
-    mbPendingA={x,y};
-    drawBridgeDot();
-  }else{
-    mbBridges.push({x1:mbPendingA.x,y1:mbPendingA.y,x2:x,y2:y});
-    mbPendingA=null;
-    updateRightCanvas();
-    clearTimeout(mbDeb);mbDeb=setTimeout(mbAnalyze,150);
-  }
+document.querySelectorAll('[data-shapetype]').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    mbShapeType = b.dataset.shapetype;
+    document.querySelectorAll('[data-shapetype]').forEach(x=>x.classList.toggle('active', x===b));
+  });
 });
 
-function drawBridgeDot(){
-  const layer=$('mmarkers'); layer.innerHTML='';
-  if(!mbPendingA||!workingSvg)return;
-  const vb=getViewBox(workingSvg);
-  const px=(mbPendingA.x-vb.x)/vb.w*100;
-  const py=(mbPendingA.y-vb.y)/vb.h*100;
-  const dot=document.createElement('div'); dot.className='mb-dot';
-  dot.style.left=px+'%'; dot.style.top=py+'%';
-  layer.appendChild(dot);
+// Ekran koordinatından SVG (viewBox) koordinatına çevirir
+function svgPointFromEvent(e){
+  const w = $('afterInner').getBoundingClientRect();
+  const vb = getViewBox(workingSvg);
+  return { x: vb.x + (e.clientX-w.left)/w.width*vb.w, y: vb.y + (e.clientY-w.top)/w.height*vb.h, vb };
 }
+
+function shapeRectPct(s, vb){
+  return { leftPct:(s.x-vb.x)/vb.w*100, topPct:(s.y-vb.y)/vb.h*100, wPct:s.w/vb.w*100, hPct:s.h/vb.h*100 };
+}
+
+// Şeklin türüne göre SVG-birimi (x,y) köşe/poligon noktalarını üretir.
+function shapePoints(s){
+  const {x,y,w,h,type} = s;
+  switch(type){
+    case 'tri-up':    return [[x+w/2,y],[x,y+h],[x+w,y+h]];
+    case 'tri-down':  return [[x,y],[x+w,y],[x+w/2,y+h]];
+    case 'tri-left':  return [[x,y+h/2],[x+w,y],[x+w,y+h]];
+    case 'tri-right': return [[x,y],[x,y+h],[x+w,y+h/2]];
+    case 'semi': {
+      const N=20, pts=[], cx=x+w/2, cy=y+h, rx=w/2, ry=h;
+      for(let i=0;i<=N;i++){
+        const ang = Math.PI - (i/N)*Math.PI;
+        pts.push([cx+rx*Math.cos(ang), cy-ry*Math.sin(ang)]);
+      }
+      return pts;
+    }
+    default: return [[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
+  }
+}
+
+// shapePoints'i şeklin kendi kutusuna göre % olarak normalize eder -> CSS clip-path
+function shapeClipPath(s){
+  if(s.w<=0 || s.h<=0) return 'none';
+  const norm = shapePoints(s).map(([px,py])=>`${((px-s.x)/s.w*100).toFixed(1)}% ${((py-s.y)/s.h*100).toFixed(1)}%`);
+  return `polygon(${norm.join(',')})`;
+}
+
+// Mevcut bir elemanın konum/boyut/şeklini günceller (DOM'u yeniden oluşturmaz —
+// sürükleme sırasında pointer capture'ın kopmaması için bu önemli).
+function positionShapeEl(el, s, vb){
+  const p = shapeRectPct(s, vb);
+  el.style.left=p.leftPct+'%'; el.style.top=p.topPct+'%';
+  el.style.width=p.wPct+'%'; el.style.height=p.hPct+'%';
+  const fill = el.querySelector('.mb-shape-fill');
+  if(fill){
+    const cp = s.type && s.type!=='rect' ? shapeClipPath(s) : 'none';
+    fill.style.clipPath = cp; fill.style.webkitClipPath = cp;
+  }
+}
+
+function renderShapes(){
+  const layer = $('mbshapes');
+  layer.innerHTML='';
+  if(!workingSvg) return;
+  const vb = getViewBox(workingSvg);
+  mbShapes.forEach(s=>{
+    const el = document.createElement('div');
+    el.className = 'mb-shape'+(s.id===mbSelId?' sel':'');
+    el.dataset.id = s.id;
+    el.innerHTML = '<div class="mb-shape-fill"></div><div class="mb-del">×</div><div class="mb-handle tl"></div><div class="mb-handle tr"></div><div class="mb-handle bl"></div><div class="mb-handle br"></div>';
+    positionShapeEl(el, s, vb);
+    bindShapeEvents(el, s);
+    layer.appendChild(el);
+  });
+}
+
+function selectShape(id){ mbSelId=id; renderShapes(); }
+
+function deleteShape(id){
+  mbShapes = mbShapes.filter(s=>s.id!==id);
+  if(mbSelId===id) mbSelId=null;
+  renderShapes();
+  updateRightCanvas();
+  clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150);
+}
+
+function applyResize(s, o, corner, dx, dy){
+  const MIN=1;
+  if(corner==='tl'){
+    const right=o.x+o.w, bottom=o.y+o.h;
+    s.x=Math.min(o.x+dx, right-MIN); s.y=Math.min(o.y+dy, bottom-MIN);
+    s.w=right-s.x; s.h=bottom-s.y;
+  } else if(corner==='tr'){
+    const left=o.x, bottom=o.y+o.h;
+    s.w=Math.max(o.w+dx, MIN); s.x=left;
+    s.y=Math.min(o.y+dy, bottom-MIN); s.h=bottom-s.y;
+  } else if(corner==='bl'){
+    const right=o.x+o.w, top=o.y;
+    s.x=Math.min(o.x+dx, right-MIN); s.w=right-s.x;
+    s.h=Math.max(o.h+dy, MIN); s.y=top;
+  } else {
+    s.x=o.x; s.y=o.y; s.w=Math.max(o.w+dx, MIN); s.h=Math.max(o.h+dy, MIN);
+  }
+}
+
+function bindShapeEvents(el, s){
+  el.addEventListener('pointerdown', e=>{
+    if(!isManualBridgeActive()) return;
+    e.stopPropagation();
+    if(e.target.classList.contains('mb-del')){ selectShape(s.id); deleteShape(s.id); return; }
+    selectShape(s.id);
+    const wRect=$('afterInner').getBoundingClientRect();
+    const vb=getViewBox(workingSvg);
+    const corner=['tl','tr','bl','br'].find(c=>e.target.classList.contains(c));
+    mbDrag = corner
+      ? { mode:'resize', id:s.id, corner, startX:e.clientX, startY:e.clientY, orig:{...s}, vb, wRect }
+      : { mode:'move',   id:s.id,         startX:e.clientX, startY:e.clientY, orig:{...s}, vb, wRect };
+    el.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  el.addEventListener('pointermove', e=>{
+    if(!mbDrag || mbDrag.id!==s.id) return;
+    const dx=(e.clientX-mbDrag.startX)/mbDrag.wRect.width*mbDrag.vb.w;
+    const dy=(e.clientY-mbDrag.startY)/mbDrag.wRect.height*mbDrag.vb.h;
+    if(mbDrag.mode==='move'){ s.x=mbDrag.orig.x+dx; s.y=mbDrag.orig.y+dy; }
+    else applyResize(s, mbDrag.orig, mbDrag.corner, dx, dy);
+    // Sürükleme sırasında DOM'u yeniden kurmuyoruz (pointer capture kopmasın) — sadece bu elemanı taşı
+    positionShapeEl(el, s, mbDrag.vb);
+  });
+  el.addEventListener('pointerup', e=>{
+    if(!mbDrag || mbDrag.id!==s.id) return;
+    mbDrag=null;
+    updateRightCanvas();
+    clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150);
+  });
+}
+
+// Boş alana sürükle = yeni dikdörtgen oluştur
+$('mbshapes').addEventListener('pointerdown', e=>{
+  if(!workingSvg || !isManualBridgeActive()) return;
+  if(e.target.closest('.mb-shape')) return; // o zaten kendi handler'ında ele alınıyor
+
+  const layer=$('mbshapes');
+  const start = svgPointFromEvent(e);
+  const id = ++mbSeq;
+  const s = { id, x:start.x, y:start.y, w:0, h:0, type: mbShapeType };
+  mbShapes.push(s); mbSelId=id; renderShapes();
+  const newEl = layer.querySelector(`[data-id="${id}"]`);
+  layer.setPointerCapture(e.pointerId);
+
+  function onMove(ev){
+    const cur=svgPointFromEvent(ev);
+    s.x=Math.min(start.x,cur.x); s.y=Math.min(start.y,cur.y);
+    s.w=Math.abs(cur.x-start.x); s.h=Math.abs(cur.y-start.y);
+    if(newEl) positionShapeEl(newEl, s, start.vb);
+  }
+  function onUp(ev){
+    layer.removeEventListener('pointermove', onMove);
+    layer.removeEventListener('pointerup', onUp);
+    layer.releasePointerCapture(ev.pointerId);
+    if(s.w<2 || s.h<2){ mbShapes=mbShapes.filter(x=>x.id!==id); mbSelId=null; renderShapes(); return; }
+    updateRightCanvas();
+    clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150);
+  }
+  layer.addEventListener('pointermove', onMove);
+  layer.addEventListener('pointerup', onUp);
+});
+
+document.addEventListener('keydown', e=>{
+  if((e.key==='Delete'||e.key==='Backspace') && mbSelId!=null && isManualBridgeActive()){
+    const tag=document.activeElement && document.activeElement.tagName;
+    if(tag==='INPUT'||tag==='TEXTAREA') return;
+    e.preventDefault();
+    deleteShape(mbSelId);
+  }
+});
 
 async function mbAnalyze(){
   if(!workingSvg)return;
@@ -958,16 +1220,18 @@ function drawBridgeIslands(islands){
     d.style.width=sz+'%';d.style.height=sz+'%';
     layer.appendChild(d);
   });
-  if(mbPendingA) drawBridgeDot();
 }
 
 $('mundo').addEventListener('click',()=>{
-  if(mbPendingA){mbPendingA=null;$('mmarkers').innerHTML='';}
-  else{mbBridges.pop();updateRightCanvas();clearTimeout(mbDeb);mbDeb=setTimeout(mbAnalyze,100);}
+  if(!mbShapes.length) return;
+  deleteShape(mbShapes[mbShapes.length-1].id);
 });
 $('mclear').addEventListener('click',()=>{
-  mbBridges=[];mbPendingA=null;$('mmarkers').innerHTML='';
-  updateRightCanvas();$('mComp').textContent='—';$('mComp').style.color=null;
+  mbShapes=[]; mbSelId=null; mbDrag=null;
+  renderShapes();
+  updateRightCanvas();
+  $('mmarkers').innerHTML='';
+  $('mComp').textContent='—'; $('mComp').style.color=null;
 });
 
 function mbFn(ext){return fileName.replace(/\.svg$/i,'')+'_koprulu.'+ext;}
@@ -1026,6 +1290,8 @@ $('kaydet').addEventListener('click',()=>{
         if(wr.ok){
           workingSvg=await wr.text();
           updateRightCanvas();
+          updateRatioUI();
+          renderShapes();
         }
       }catch(we){console.warn('Working SVG yüklenemedi:',we.message);}
     }
