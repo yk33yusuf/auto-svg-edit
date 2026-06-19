@@ -531,8 +531,13 @@ function updateRatioUI(){
 // ── Geri al: Elle Köprü bölümündeki tüm düzenlemeler (kırp/genişlet/daralt/şekil) için ortak yığın ──
 function mbSnapshotShapes(){ return mbShapes.map(s=>({...s})); }
 
+// layers içindeki DOM referansını (ov) hariç tutarak düz veri kopyası alır
+function layersSnapshot(){
+  return layers.map(({ov, ...rest})=>({...rest}));
+}
+
 function mbPushHistory(){
-  mbHistory.push({ workingSvg, shapes: mbSnapshotShapes() });
+  mbHistory.push({ workingSvg, shapes: mbSnapshotShapes(), layers: layersSnapshot() });
   if(mbHistory.length > MB_MAX_HISTORY) mbHistory.shift();
   $('mundo').disabled = false;
 }
@@ -540,6 +545,7 @@ function mbPushHistory(){
 function mbUndo(){
   const snap = mbHistory.pop();
   if(!snap) return;
+
   workingSvg = snap.workingSvg;
   mbShapes = snap.shapes;
   lastSvg = workingSvg;
@@ -548,6 +554,15 @@ function mbUndo(){
   renderShapes();
   updateRatioUI();
   clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150);
+
+  // Compose (yazı) katmanlarını da geri yükle
+  layers.forEach(l=>{ if(l.ov) l.ov.remove(); });
+  layers = (snap.layers || []).map(l=>({...l, ov:null}));
+  selId = layers.length ? layers[layers.length-1].id : null;
+  renderOverlays();
+  renderChips();
+  syncControls();
+
   $('mundo').disabled = mbHistory.length===0;
 }
 
@@ -945,6 +960,7 @@ function hideErr(){$('err').style.display='none';}
 function cViewBox(svg){const m=svg.match(/viewBox="([^"]+)"/);if(m){const p=m[1].trim().split(/[ ,]+/).map(Number);if(p.length===4)return p;}const w=svg.match(/width="?([\d.]+)/),h=svg.match(/height="?([\d.]+)/);return[0,0,w?+w[1]:1000,h?+h[1]:1000];}
 function newLayer(text){return{id:++seq,text,font:'saira',mode:'solid',curve:0,widthPct:45,rotate:0,cxPct:50,cyPct:50,vscale:1.0,ls:4,color:'#000000',ov:null};}
 function addLayer(text){
+  mbPushHistory();
   const L=newLayer(text||'YAZI'); L.cyPct=20+(layers.length*18)%70;
   layers.push(L); selId=L.id; renderOverlays(); renderChips(); syncControls();
 }
@@ -989,7 +1005,9 @@ document.querySelectorAll('[data-ccolor]').forEach(b=>b.addEventListener('click'
 }));
 $('caddlayer').addEventListener('click',()=>addLayer('YAZI'));
 $('cdellayer').addEventListener('click',()=>{
-  const l=getSel();if(!l)return;if(l.ov)l.ov.remove();
+  const l=getSel();if(!l)return;
+  mbPushHistory();
+  if(l.ov)l.ov.remove();
   layers=layers.filter(x=>x.id!==l.id);
   selId=layers.length?layers[layers.length-1].id:null;
   renderChips();syncControls();highlightSel();
@@ -1023,7 +1041,7 @@ function positionOv(l){const o=l.ov;if(!o)return;o.style.left=l.cxPct+'%';o.styl
 function highlightSel(){layers.forEach(l=>{if(l.ov)l.ov.classList.toggle('sel',l.id===selId);});}
 function bindDrag(ov,l){
   let drag=false;
-  ov.addEventListener('pointerdown',e=>{selId=l.id;renderChips();syncControls();highlightSel();drag=true;ov.setPointerCapture(e.pointerId);ov.style.cursor='grabbing';e.preventDefault();});
+  ov.addEventListener('pointerdown',e=>{selId=l.id;renderChips();syncControls();highlightSel();mbPushHistory();drag=true;ov.setPointerCapture(e.pointerId);ov.style.cursor='grabbing';e.preventDefault();});
   ov.addEventListener('pointermove',e=>{
     if(!drag)return;
     const w=$('afterInner').getBoundingClientRect();
