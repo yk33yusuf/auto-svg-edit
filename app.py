@@ -851,7 +851,11 @@ def index():
     """Tarayici arayuzu (index.html)."""
     path = os.path.join(_HERE, "index.html")
     if os.path.exists(path):
-        return FileResponse(path, media_type="text/html")
+        return FileResponse(
+            path,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache"},
+        )
     return JSONResponse({"service": "auto-svg-clean", "ui": "index.html yok"})
 
 
