@@ -355,7 +355,7 @@ button{font-family:inherit;cursor:pointer}
           <div style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-top:2px">kalan parça</div>
         </div>
         <div class="btn-row" style="flex-wrap:wrap">
-          <button class="btn-icon" id="mundo" disabled>↩ Geri al</button>
+          <button class="btn-icon" id="mundo" disabled title="Kırp/Genişlet/Daralt/şekil — son işlemi geri alır">↩ Geri al</button>
           <button class="btn-icon" id="mclear" disabled>Temizle</button>
           <button class="btn-icon ok" id="mdlsvg" disabled>↓ SVG</button>
           <button class="btn-icon ok" id="mdlpng" disabled>↓ PNG</button>
@@ -455,6 +455,8 @@ let layers = [], selId = null, seq = 0, cDeb = null;
 
 /* ── Elle köprü state ── */
 let mbShapes = [], mbSelId = null, mbSeq = 0, mbDrag = null, mbDeb = null, mbShapeType = 'rect';
+let mbHistory = []; // tüm Elle Köprü düzenlemeleri (kırp/genişlet/daralt/şekil) için ortak geri al yığını
+const MB_MAX_HISTORY = 50;
 
 /* ── Helpers ── */
 function getViewBox(text){
@@ -526,9 +528,33 @@ function updateRatioUI(){
   $('ratioShrink').disabled = plan.shrink.delta < 0.01;
 }
 
+// ── Geri al: Elle Köprü bölümündeki tüm düzenlemeler (kırp/genişlet/daralt/şekil) için ortak yığın ──
+function mbSnapshotShapes(){ return mbShapes.map(s=>({...s})); }
+
+function mbPushHistory(){
+  mbHistory.push({ workingSvg, shapes: mbSnapshotShapes() });
+  if(mbHistory.length > MB_MAX_HISTORY) mbHistory.shift();
+  $('mundo').disabled = false;
+}
+
+function mbUndo(){
+  const snap = mbHistory.pop();
+  if(!snap) return;
+  workingSvg = snap.workingSvg;
+  mbShapes = snap.shapes;
+  lastSvg = workingSvg;
+  mbSelId = null; mbDrag = null;
+  updateRightCanvas();
+  renderShapes();
+  updateRatioUI();
+  clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150);
+  $('mundo').disabled = mbHistory.length===0;
+}
+
 function applyRatio(which){
   const plan = ratioPlan();
   if(!plan) return;
+  mbPushHistory();
   workingSvg = setSvgViewBox(workingSvg, plan[which].vb);
   lastSvg = workingSvg;
   updateRightCanvas();
@@ -549,6 +575,7 @@ async function trimToContent(){
     const res = await fetch('/bbox?threshold=10&scale=2', {method:'POST', body:fd});
     if(!res.ok) throw new Error((await res.json()).detail || 'bbox alınamadı');
     const box = await res.json();
+    mbPushHistory();
     workingSvg = setSvgViewBox(workingSvg, box);
     lastSvg = workingSvg;
     updateRightCanvas();
@@ -667,10 +694,11 @@ function initAllTools(text, name){
   $('cno-base').style.display='none'; $('ccontrols').style.display='';
 
   // Reset elle köprü
-  mbShapes=[]; mbSelId=null; mbDrag=null; mbSeq=0; mbShapeType='rect';
+  mbShapes=[]; mbSelId=null; mbDrag=null; mbSeq=0; mbShapeType='rect'; mbHistory=[];
   document.querySelectorAll('[data-shapetype]').forEach(x=>x.classList.toggle('active', x.dataset.shapetype==='rect'));
   $('mno-base').style.display='none'; $('mcontrols').style.display='';
-  ['mdlsvg','mdlpng','mclear','mundo','manualKaydet','trimEdges'].forEach(id=>$(id).disabled=false);
+  ['mdlsvg','mdlpng','mclear','manualKaydet','trimEdges'].forEach(id=>$(id).disabled=false);
+  $('mundo').disabled = true;
   $('mmarkers').innerHTML='';
   $('mbshapes').style.pointerEvents = isManualBridgeActive() ? 'auto' : 'none';
   renderShapes();
@@ -1126,6 +1154,7 @@ function renderShapes(){
 function selectShape(id){ mbSelId=id; renderShapes(); }
 
 function deleteShape(id){
+  mbPushHistory();
   mbShapes = mbShapes.filter(s=>s.id!==id);
   if(mbSelId===id) mbSelId=null;
   renderShapes();
@@ -1158,6 +1187,7 @@ function bindShapeEvents(el, s){
     e.stopPropagation();
     if(e.target.classList.contains('mb-del')){ selectShape(s.id); deleteShape(s.id); return; }
     selectShape(s.id);
+    mbPushHistory();
     const wRect=$('afterInner').getBoundingClientRect();
     const vb=getViewBox(workingSvg);
     const corner=['tl','tr','bl','br'].find(c=>e.target.classList.contains(c));
@@ -1193,6 +1223,7 @@ $('mbshapes').addEventListener('pointerdown', e=>{
   const start = svgPointFromEvent(e);
   const id = ++mbSeq;
   const s = { id, x:start.x, y:start.y, w:0, h:0, type: mbShapeType };
+  mbPushHistory();
   mbShapes.push(s); mbSelId=id; renderShapes();
   const newEl = layer.querySelector(`[data-id="${id}"]`);
   layer.setPointerCapture(e.pointerId);
@@ -1207,7 +1238,11 @@ $('mbshapes').addEventListener('pointerdown', e=>{
     layer.removeEventListener('pointermove', onMove);
     layer.removeEventListener('pointerup', onUp);
     layer.releasePointerCapture(ev.pointerId);
-    if(s.w<2 || s.h<2){ mbShapes=mbShapes.filter(x=>x.id!==id); mbSelId=null; renderShapes(); return; }
+    if(s.w<2 || s.h<2){
+      mbShapes=mbShapes.filter(x=>x.id!==id); mbSelId=null; renderShapes();
+      mbHistory.pop(); $('mundo').disabled = mbHistory.length===0; // hiçbir şey değişmedi, sahte kaydı geri al
+      return;
+    }
     updateRightCanvas();
     clearTimeout(mbDeb); mbDeb=setTimeout(mbAnalyze,150);
   }
@@ -1253,11 +1288,9 @@ function drawBridgeIslands(islands){
   });
 }
 
-$('mundo').addEventListener('click',()=>{
-  if(!mbShapes.length) return;
-  deleteShape(mbShapes[mbShapes.length-1].id);
-});
+$('mundo').addEventListener('click', mbUndo);
 $('mclear').addEventListener('click',()=>{
+  mbPushHistory();
   mbShapes=[]; mbSelId=null; mbDrag=null;
   renderShapes();
   updateRightCanvas();
