@@ -732,7 +732,7 @@ function initScrollZoom(canvasEl, innerId, labelId){
   function apply(){
     if(label) label.textContent=Math.round(zoom*100)+'%';
     if(zoom===1){ inner.style.transform=''; inner.style.transformOrigin=''; canvasEl.style.cursor=''; }
-    else{ inner.style.transform=`translate(${tx}px,${ty}px) scale(${zoom})`; inner.style.transformOrigin='0 0'; canvasEl.style.cursor=dragging?'grabbing':'grab'; }
+    else{ inner.style.transform=`translate(${tx}px,${ty}px) scale(${zoom})`; inner.style.transformOrigin='0 0'; canvasEl.style.cursor=dragging?'grabbing':''; }
   }
 
   canvasEl.addEventListener('wheel',e=>{
@@ -748,10 +748,11 @@ function initScrollZoom(canvasEl, innerId, labelId){
     apply();
   },{passive:false});
 
+  // Pan sadece sağ tık ile — sol tık her aşamada (Elle Köprü dahil) şekil çizme/seçme/sürükleme için boşta kalır.
+  canvasEl.addEventListener('contextmenu',e=>{ e.preventDefault(); });
+
   canvasEl.addEventListener('mousedown',e=>{
-    if(e.target.closest('.imark')) return;
-    if(e.target.closest('.layer-ov')) return;
-    if(isManualBridgeActive() && e.target.closest('#mbshapes')) return;
+    if(e.button!==2) return;
     hasDragged=false;
     if(zoom<=1) return;
     dragging=true; dsx=e.clientX; dsy=e.clientY; dtx=tx; dty=ty;
