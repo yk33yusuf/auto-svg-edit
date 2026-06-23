@@ -356,6 +356,11 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
             "w": round((xs.max() - xs.min()) / scale, 1),
             "h": round((ys.max() - ys.min()) / scale, 1),
             "area_pt2": round(area_pt, 1),
+            # remove_str: bu adaya ait ham SVG markup'i. /analyze yanitinda bunu da
+            # dondururuz ki frontend "Sil" secimini sunucuya gitmeden, aninda
+            # client-side string-replace ile uygulayabilsin (koprusuz silme icin
+            # render/baglanti analizi gerekmez, sadece metin cikarma).
+            "remove_str": remove_str,
         })
     removed.sort(key=lambda r: r["y0"])
 
@@ -1209,6 +1214,9 @@ async def selective_endpoint(
 
     # ── Adım 2: Seçili adaları köprüle ──
     br_valid = [i for i in sorted(br_set) if i < len(island_list) and i not in del_set]
+    bridged_ok = []   # gercekten en az 1 kopru segmenti eklenen index'ler — frontend
+                       # bunu okuyup "koprule" secilip de baglanamayan adalari kullaniciya
+                       # dogru sekilde bildirebilsin (sessizce basarisiz kalmasin).
     if br_valid:
         gray2 = render_to_gray(result, W, H, scale)
         black2 = gray2 < dark_threshold
@@ -1243,6 +1251,7 @@ async def selective_endpoint(
                     rest = rest | isl_mask2
                     continue
 
+                added_any = False
                 for (ix, iy, rx_, ry_) in pairs:
                     blen = math.hypot(rx_ - ix, ry_ - iy)
                     if blen < 0.5:
@@ -1255,13 +1264,19 @@ async def selective_endpoint(
                         edt_black, ix, iy, rx_, ry_, scale,
                         color="#000000", floor_hw=floor_hw))
                     _stamp_line(rest, ix, iy, rx_, ry_)
+                    added_any = True
+                if added_any:
+                    bridged_ok.append(i)
                 rest = rest | isl_mask2
             if svg_bridges:
                 i_close = result.rfind("</svg>")
                 result = result[:i_close] + "".join(svg_bridges) + result[i_close:]
 
     return Response(content=result, media_type="image/svg+xml",
-                    headers={"X-Processed": str(len(del_set) + len(br_set))})
+                    headers={
+                        "X-Processed": str(len(del_set) + len(br_set)),
+                        "X-Bridged-Indices": ",".join(str(i) for i in bridged_ok),
+                    })
 
 
 @app.post("/compose_multi")

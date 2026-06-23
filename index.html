@@ -843,21 +843,28 @@ $('applyBtn').addEventListener('click',()=>{
   analyzedReport=null; islandStates=[]; cleanBaseSvg=null;
 });
 
-// Her tıklamada hemen çağrılır (debounce yok — "Sil" dersen anında siler, "Köprüle"
-// dersen anında köprüler). Art arda hızlı tıklamalarda yarış olmaması için her çağrı
-// kendi isteğini numaralandırır; sadece EN SON başlatılan isteğin cevabı uygulanır —
-// böylece her zaman cleanBaseSvg'den yeniden hesaplanır ve hiçbir şey birikip bozulmaz.
+// Sil/Tut: backend'e GİTMEDEN, tarayıcıda anında uygulanır (remove_str, /analyze
+// cevabında zaten geldi — sadece metinden çıkarmak yeterli, render gerekmez).
+// Köprüle: gerçek bir geometri hesabı (iskelet/EDT) gerektirdiğinden tek bu durumda
+// backend'e gidilir. Art arda hızlı tıklamalarda yarış olmaması için her ağ isteği
+// numaralandırılır; sadece EN SON başlatılanın cevabı uygulanır.
 async function computeCleanPreview(){
   if(!analyzedReport||!cleanBaseSvg)return;
-  const myReq=++cleanReqId;
   const delIdx=islandStates.map((s,i)=>s==='delete'?i:-1).filter(i=>i>=0);
   const brIdx =islandStates.map((s,i)=>s==='bridge'?i:-1).filter(i=>i>=0);
-  $('afterTag').textContent='uygulanıyor…';
   let result;
-  try{
-    if(delIdx.length===0&&brIdx.length===0){
-      result=cleanBaseSvg;
-    }else{
+  if(brIdx.length===0){
+    // Köprü yok → sadece metinden çıkar, anında (ağ isteği yok).
+    result=cleanBaseSvg;
+    for(const i of delIdx){
+      const rs=analyzedReport.removed[i]&&analyzedReport.removed[i].remove_str;
+      if(rs) result=result.replace(rs,'');
+    }
+  }else{
+    const myReq=++cleanReqId;
+    $('afterTag').textContent='köprüleniyor…';
+    let bridgedOk;
+    try{
       const fd=new FormData();
       fd.append('file',new Blob([cleanBaseSvg],{type:'image/svg+xml'}),fileName);
       fd.append('delete_indices',JSON.stringify(delIdx));
@@ -868,12 +875,28 @@ async function computeCleanPreview(){
       const res=await fetch('/selective',{method:'POST',body:fd});
       if(!res.ok)throw new Error((await res.json()).detail||'işlem hatası');
       result=await res.text();
+      const hdr=res.headers.get('X-Bridged-Indices')||'';
+      bridgedOk=new Set(hdr.split(',').filter(Boolean).map(Number));
+    }catch(e){
+      if(myReq===cleanReqId) showErr(e.message);
+      return;
     }
-  }catch(e){
-    if(myReq===cleanReqId) showErr(e.message);
-    return;
+    if(myReq!==cleanReqId) return; // bu sırada daha yeni bir tıklama başladı — bu cevap eskidi, yok say
+    // Backend "köprüle" istenen ama geometrik olarak baglayamadigi (ada zaten ana govdeye
+    // cok yakin/cakisik, veya uygun bir baglanti noktasi bulunamadi) adalari sessizce atlar.
+    // Boyle bir ada icin marker'i "koprule" gibi gosterip kullaniciyi yanitmak yerine,
+    // gercekte ne olduysa onu yansitacak sekilde "tut"a geri al ve haber ver.
+    const failed=brIdx.filter(i=>!bridgedOk.has(i));
+    if(failed.length){
+      failed.forEach(i=>{
+        islandStates[i]='keep';
+        const mk=$('markers').querySelector(`.imark[data-idx="${i}"]`);
+        if(mk){mk.dataset.s='keep';mk.querySelector('.mico').textContent=S_ICO.keep;}
+        syncIslandRow(i);
+      });
+      showErr(`Ada #${failed.map(i=>i+1).join(', #')} ana gövdeye çok yakın/örtüşük olduğu için köprülenemedi, "Tut" olarak bırakıldı.`);
+    }
   }
-  if(myReq!==cleanReqId) return; // bu sırada daha yeni bir tıklama başladı — bu cevap eskidi, yok say
   workingSvg=result; lastSvg=result;
   updateRightCanvas();
   if(cleanedBlobUrl)URL.revokeObjectURL(cleanedBlobUrl);
