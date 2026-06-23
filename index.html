@@ -454,7 +454,7 @@ let lastSvg     = null;
 // cleanBaseSvg: Analiz Et'in çalıştığı andaki sabit referans SVG. Her önizleme bu
 // taban üzerinden yeniden hesaplanır, böylece seçim değiştirmek hiçbir zaman
 // birikmeli/bozucu olmaz — istediğin kadar geri/ileri dönebilirsin.
-let islandStates = [], analyzedReport = null, cleanedBlobUrl = null, cleanBaseSvg = null, cleanDeb = null;
+let islandStates = [], analyzedReport = null, cleanedBlobUrl = null, cleanBaseSvg = null, cleanReqId = 0;
 
 /* ── Compose state ── */
 let layers = [], selId = null, seq = 0, cDeb = null;
@@ -702,7 +702,7 @@ function initAllTools(text, name){
   $('markers').innerHTML = '';
   $('dl').disabled=true; $('png').disabled=true; $('cleanKaydet').disabled=true;
   islandStates=[]; analyzedReport=null;
-  clearTimeout(cleanDeb); cleanBaseSvg=null;
+  cleanBaseSvg=null; cleanReqId++;
   if(cleanedBlobUrl){URL.revokeObjectURL(cleanedBlobUrl);cleanedBlobUrl=null;}
   $('islandCtrl').style.display='none';
   $('stats').style.display='none';
@@ -831,36 +831,28 @@ $('go').addEventListener('click',async()=>{
   finally{go.disabled=false;go.textContent='Analiz Et';}
 });
 
-$('allDel').addEventListener('click',  ()=>{islandStates=islandStates.map(()=>'delete'); refreshMarkers(); scheduleCleanPreview();});
-$('allBr').addEventListener('click',   ()=>{islandStates=islandStates.map(()=>'bridge'); refreshMarkers(); scheduleCleanPreview();});
-$('allKeep').addEventListener('click', ()=>{islandStates=islandStates.map(()=>'keep');   refreshMarkers(); scheduleCleanPreview();});
+$('allDel').addEventListener('click',  ()=>{islandStates=islandStates.map(()=>'delete'); refreshMarkers(); computeCleanPreview();});
+$('allBr').addEventListener('click',   ()=>{islandStates=islandStates.map(()=>'bridge'); refreshMarkers(); computeCleanPreview();});
+$('allKeep').addEventListener('click', ()=>{islandStates=islandStates.map(()=>'keep');   refreshMarkers(); computeCleanPreview();});
 
-// "Seçimi Uygula" artık ayrı/yıkıcı bir adım değil — her seçim değişikliği otomatik ve
-// anında uygulanır (bkz. scheduleCleanPreview). Buton sadece ada listesini kapatıp
-// bitirir; workingSvg zaten her zaman güncel haldedir.
-$('applyBtn').addEventListener('click',async()=>{
-  const btn=$('applyBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>İşleniyor';
-  try{
-    clearTimeout(cleanDeb);
-    await computeCleanPreview();   // bekleyen bir değişiklik varsa son haliyle uygula
-    $('markers').innerHTML=''; $('islandCtrl').style.display='none';
-    $('afterTag').textContent='uygulandı ✓';
-    analyzedReport=null; islandStates=[]; cleanBaseSvg=null;
-  }catch(e){showErr(e.message);}
-  finally{btn.disabled=false;btn.textContent='Bitti — Listeyi Kapat';}
+// "Seçimi Uygula" artık ayrı/yıkıcı bir adım değil — her tek tıklama (Sil/Köprüle/Tut)
+// ANINDA uygulanır (bkz. computeCleanPreview, her çağrıda direkt çalışır — debounce yok).
+// Buton sadece ada listesini kapatıp bitirir; workingSvg zaten her zaman güncel haldedir.
+$('applyBtn').addEventListener('click',()=>{
+  $('markers').innerHTML=''; $('islandCtrl').style.display='none';
+  analyzedReport=null; islandStates=[]; cleanBaseSvg=null;
 });
 
-function scheduleCleanPreview(){
-  clearTimeout(cleanDeb);
-  cleanDeb=setTimeout(computeCleanPreview,350);
-}
-
-// Her zaman cleanBaseSvg'den yeniden hesaplar (workingSvg'nin önceki halinden DEĞİL) —
-// böylece seçimler ileri-geri değiştirilse de hiçbir zaman birikip bozulmaz.
+// Her tıklamada hemen çağrılır (debounce yok — "Sil" dersen anında siler, "Köprüle"
+// dersen anında köprüler). Art arda hızlı tıklamalarda yarış olmaması için her çağrı
+// kendi isteğini numaralandırır; sadece EN SON başlatılan isteğin cevabı uygulanır —
+// böylece her zaman cleanBaseSvg'den yeniden hesaplanır ve hiçbir şey birikip bozulmaz.
 async function computeCleanPreview(){
   if(!analyzedReport||!cleanBaseSvg)return;
+  const myReq=++cleanReqId;
   const delIdx=islandStates.map((s,i)=>s==='delete'?i:-1).filter(i=>i>=0);
   const brIdx =islandStates.map((s,i)=>s==='bridge'?i:-1).filter(i=>i>=0);
+  $('afterTag').textContent='uygulanıyor…';
   let result;
   try{
     if(delIdx.length===0&&brIdx.length===0){
@@ -877,7 +869,11 @@ async function computeCleanPreview(){
       if(!res.ok)throw new Error((await res.json()).detail||'işlem hatası');
       result=await res.text();
     }
-  }catch(e){ showErr(e.message); return; }
+  }catch(e){
+    if(myReq===cleanReqId) showErr(e.message);
+    return;
+  }
+  if(myReq!==cleanReqId) return; // bu sırada daha yeni bir tıklama başladı — bu cevap eskidi, yok say
   workingSvg=result; lastSvg=result;
   updateRightCanvas();
   if(cleanedBlobUrl)URL.revokeObjectURL(cleanedBlobUrl);
@@ -920,7 +916,7 @@ function drawMarkers(rep){
       m.dataset.s=islandStates[i];
       m.querySelector('.mico').textContent=S_ICO[islandStates[i]];
       syncIslandRow(i);
-      scheduleCleanPreview();
+      computeCleanPreview();
     });
     layer.appendChild(m);
   });
@@ -959,7 +955,7 @@ function populateIslandRows(rep){
       stBtn.dataset.s=islandStates[i]; stBtn.textContent=S_LBL[islandStates[i]];
       const mk=$('markers').querySelector(`.imark[data-idx="${i}"]`);
       if(mk){mk.dataset.s=islandStates[i];mk.querySelector('.mico').textContent=S_ICO[islandStates[i]];}
-      scheduleCleanPreview();
+      computeCleanPreview();
     });
     row.appendChild(num); row.appendChild(info); row.appendChild(stBtn);
     list.appendChild(row);
