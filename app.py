@@ -283,6 +283,11 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
     rapor: components_before/after, removed_count, removed[ {x0,y0,x1,y1,w,h,area_pt2} ]
     """
     header, W, H = extract_svg_header(content)
+    # viewBox min-x/min-y sifir olmayabilir (ozellikle bu editorde otomatik "kenar
+    # bosluğunu kirp" calistiktan sonra HEMEN HEMEN HER ZAMAN sifir degildir). Asagidaki
+    # piksel->SVG-birimi donusumlerinde bunu eklemezsek, raporlanan x0/y0/x1/y1 gercek
+    # konumdan viewBox'in origin'i kadar kayar.
+    vbx, vby = extract_viewbox_origin(content)
 
     # 1) Renk filtresi — hem bare <path/> hem de <g transform="..."><path/></g> kalıpları
     # Her item: (remove_str, render_fragment)
@@ -351,8 +356,8 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
         if do_remove:
             cleaned = cleaned.replace(remove_str, "", 1)
         removed.append({
-            "x0": round(xs.min() / scale, 1), "y0": round(ys.min() / scale, 1),
-            "x1": round(xs.max() / scale, 1), "y1": round(ys.max() / scale, 1),
+            "x0": round(vbx + xs.min() / scale, 1), "y0": round(vby + ys.min() / scale, 1),
+            "x1": round(vbx + xs.max() / scale, 1), "y1": round(vby + ys.max() / scale, 1),
             "w": round((xs.max() - xs.min()) / scale, 1),
             "h": round((ys.max() - ys.min()) / scale, 1),
             "area_pt2": round(area_pt, 1),
@@ -437,10 +442,12 @@ def _axis_bridge_candidates(island_mask, main_mask):
     return cands
 
 
-def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=8.0):
+def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=8.0, vbx=0.0, vby=0.0):
     """Kopruyu temiz SVG elemanina donustur. H/V icin <rect>, capraz icin <line>.
-    Köprü her iki tarafa da bw/2 kadar taşar (overlap) ve köşeler yumuşatılır."""
-    sx1, sy1, sx2, sy2 = x1/scale, y1/scale, x2/scale, y2/scale
+    Köprü her iki tarafa da bw/2 kadar taşar (overlap) ve köşeler yumuşatılır.
+    vbx/vby: viewBox min-x/min-y — piksel->SVG-birimi donusumunde eklenmezse,
+    viewBox sifirdan baslamayan tasarımlarda köprü origin kadar kayar (görünmez olur)."""
+    sx1, sy1, sx2, sy2 = vbx+x1/scale, vby+y1/scale, vbx+x2/scale, vby+y2/scale
     ovlp = bw * 1.5  # her iki tarafa taşacak miktar (svg birimi)
     rx = min(bw * 0.45, 5.0)  # köşe yumuşatma yarıçapı
     if direction == 'H':
@@ -652,7 +659,7 @@ def _ray_to_exit(black_mask, cx, cy, dx, dy, max_steps=400):
 
 
 def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
-                 floor_hw=2.0, max_half_svg=40.0):
+                 floor_hw=2.0, max_half_svg=40.0, vbx=0.0, vby=0.0):
     """
     Skeleton-tabanlı, inscribed circle garantili yamuk köprü.
 
@@ -662,6 +669,13 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     Bridge, skeleton_i → skeleton_b span eder.
     Skeleton her iki edge pikselinin içindedir → overlap otomatik.
     Yamuk: hwi ≠ hwb ise iki uç farklı genişlikte.
+
+    vbx/vby: viewBox min-x/min-y. edt_black/ix/iy/rx/ry tamamen RENDER PIKSEL
+    UZAYINDA çalışır (pixel (0,0) = viewBox'in sol-üst köşesi = SVG-birimi
+    (vbx,vby)). Bunu eklemeden döndürülen SVG koordinatı viewBox sıfırdan
+    başlamayan tasarımlarda (bu editörde otomatik kırpma SONRASI HEMEN HEMEN
+    HER ZAMAN böyledir) köprüyü görünmez bir yere kaydırır — köprü "eklenir"
+    ama hiçbir yerde görünmez, ada bağlısız kalır.
     """
     black = edt_black > 0
 
@@ -670,7 +684,7 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     if L < 0.5:
         _, _, hwi = _trace_skeleton(edt_black, iy, ix)
         r = max(float(hwi), floor_hw) / scale
-        return f'<circle cx="{ix/scale:.2f}" cy="{iy/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
+        return f'<circle cx="{vbx+ix/scale:.2f}" cy="{vby+iy/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
 
     ux, uy = dx_raw / L, dy_raw / L   # ada → gövde birim vektörü
     pdx, pdy = -uy, ux                 # bridge'e dik birim vektör
@@ -681,7 +695,7 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
 
     if math.hypot(sbx_v - six_v, sby_v - siy_v) < 0.5:
         r = max((float(hwi) + float(hwb)) / 2.0, floor_hw) / scale
-        return f'<circle cx="{six_v/scale:.2f}" cy="{siy_v/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
+        return f'<circle cx="{vbx+six_v/scale:.2f}" cy="{vby+siy_v/scale:.2f}" r="{r:.2f}" fill="{color}"/>'
 
     # Bridge half-width: EDT inscribed circle radius
     # pdx yönünde skeleton'dan bu kadar gitmek siyah içinde kalma garantisi verir
@@ -689,10 +703,10 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
     hw_b = min(max(float(hwb), floor_hw), max_half_svg * scale)
 
     # Yamuk köşeler: skeleton ± pdx * hw
-    Ti_fx = (six_v + pdx * hw_i) / scale;  Ti_fy = (siy_v + pdy * hw_i) / scale
-    Bi_fx = (six_v - pdx * hw_i) / scale;  Bi_fy = (siy_v - pdy * hw_i) / scale
-    Tb_fx = (sbx_v + pdx * hw_b) / scale;  Tb_fy = (sby_v + pdy * hw_b) / scale
-    Bb_fx = (sbx_v - pdx * hw_b) / scale;  Bb_fy = (sby_v - pdy * hw_b) / scale
+    Ti_fx = vbx+(six_v + pdx * hw_i) / scale;  Ti_fy = vby+(siy_v + pdy * hw_i) / scale
+    Bi_fx = vbx+(six_v - pdx * hw_i) / scale;  Bi_fy = vby+(siy_v - pdy * hw_i) / scale
+    Tb_fx = vbx+(sbx_v + pdx * hw_b) / scale;  Tb_fy = vby+(sby_v + pdy * hw_b) / scale
+    Bb_fx = vbx+(sbx_v - pdx * hw_b) / scale;  Bb_fy = vby+(sby_v - pdy * hw_b) / scale
 
     d_str = (f"M{Ti_fx:.2f},{Ti_fy:.2f} L{Tb_fx:.2f},{Tb_fy:.2f} "
              f"L{Bb_fx:.2f},{Bb_fy:.2f} L{Bi_fx:.2f},{Bi_fy:.2f} Z")
@@ -709,6 +723,7 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
     otomatik hesaplanır; yön de adanın PCA eksenine göre seçilir.
     """
     header, W, H = extract_svg_header(content)
+    vbx, vby = extract_viewbox_origin(content)
     gray = render_to_gray(content, W, H, scale)
     black = gray < dark_threshold
     labels, n = ndimage.label(black, structure=np.ones((3, 3)))
@@ -774,7 +789,7 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
 
         for c in chosen:
             gap_px, x1c, y1c, x2c, y2c, d = c
-            svg_bridges.append(_bridge_svg_elem(x1c,y1c,x2c,y2c,d,bw,color,scale,min_bridge_svg))
+            svg_bridges.append(_bridge_svg_elem(x1c,y1c,x2c,y2c,d,bw,color,scale,min_bridge_svg,vbx,vby))
             _stamp_line(rest, x1c, y1c, x2c, y2c)
             seg_report.append({"x1":round(x1c/scale,1),"y1":round(y1c/scale,1),
                                 "x2":round(x2c/scale,1),"y2":round(y2c/scale,1),
@@ -1155,6 +1170,7 @@ async def selective_endpoint(
         header, W, H = extract_svg_header(svg)
     except ValueError as e:
         raise HTTPException(422, str(e))
+    vbx, vby = extract_viewbox_origin(svg)
 
     # ── Ada tespiti (analyze ile aynı sıra) ──
     gray = render_to_gray(svg, W, H, scale)
@@ -1270,7 +1286,7 @@ async def selective_endpoint(
                     floor_hw = max(bridge_width, 1.0)
                     svg_bridges.append(_span_bridge(
                         edt_black, ix, iy, rx_, ry_, scale,
-                        color="#000000", floor_hw=floor_hw))
+                        color="#000000", floor_hw=floor_hw, vbx=vbx, vby=vby))
                     _stamp_line(rest, ix, iy, rx_, ry_)
                     added_any = True
                 if added_any:
