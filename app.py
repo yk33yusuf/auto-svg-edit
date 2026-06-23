@@ -1214,15 +1214,17 @@ async def selective_endpoint(
 
     # ── Adım 2: Seçili adaları köprüle ──
     br_valid = [i for i in sorted(br_set) if i < len(island_list) and i not in del_set]
-    bridged_ok = []   # gercekten en az 1 kopru segmenti eklenen index'ler — frontend
-                       # bunu okuyup "koprule" secilip de baglanamayan adalari kullaniciya
-                       # dogru sekilde bildirebilsin (sessizce basarisiz kalmasin).
+    bridged_ok = []     # gercekten en az 1 kopru segmenti eklenen index'ler
+    fail_reasons = {}   # basarisiz index -> sebep kodu (debug + kullaniciya dogru mesaj icin)
     if br_valid:
         gray2 = render_to_gray(result, W, H, scale)
         black2 = gray2 < dark_threshold
         labels2, n2 = ndimage.label(black2, structure=np.ones((3, 3)))
         sizes2 = ndimage.sum(black2, labels2, range(1, n2 + 1)) if n2 > 0 else []
-        if n2 > 0:
+        if n2 == 0:
+            for i in br_valid:
+                fail_reasons[i] = "no_dark_pixels"
+        else:
             main_label2 = int(np.argmax(sizes2)) + 1
             rest = (labels2 == main_label2).copy()
             # EDT: her siyah pikselin beyaza mesafesi = yerel yarı-stroke kalınlığı
@@ -1233,9 +1235,14 @@ async def selective_endpoint(
                 overlap = labels2[orig_mask]
                 overlap = overlap[overlap > 0]
                 if len(overlap) == 0:
+                    fail_reasons[i] = "no_overlap"
                     continue
                 lbl = int(np.bincount(overlap).argmax())
-                if lbl == 0 or lbl == main_label2:
+                if lbl == 0:
+                    fail_reasons[i] = "no_overlap"
+                    continue
+                if lbl == main_label2:
+                    fail_reasons[i] = "already_connected"
                     continue
                 isl_mask2 = labels2 == lbl
 
@@ -1248,6 +1255,7 @@ async def selective_endpoint(
                 # ── En yakın nokta çiftleri ──
                 pairs = _closest_pairs(isl_mask2, rest, n_pairs=n_br, min_sep_px=min_sep_px)
                 if not pairs:
+                    fail_reasons[i] = "no_pairs"
                     rest = rest | isl_mask2
                     continue
 
@@ -1267,6 +1275,8 @@ async def selective_endpoint(
                     added_any = True
                 if added_any:
                     bridged_ok.append(i)
+                else:
+                    fail_reasons[i] = "segments_too_short"
                 rest = rest | isl_mask2
             if svg_bridges:
                 i_close = result.rfind("</svg>")
@@ -1276,6 +1286,7 @@ async def selective_endpoint(
                     headers={
                         "X-Processed": str(len(del_set) + len(br_set)),
                         "X-Bridged-Indices": ",".join(str(i) for i in bridged_ok),
+                        "X-Bridge-Fail-Reasons": json.dumps(fail_reasons),
                     })
 
 

@@ -863,7 +863,7 @@ async function computeCleanPreview(){
   }else{
     const myReq=++cleanReqId;
     $('afterTag').textContent='köprüleniyor…';
-    let bridgedOk;
+    let bridgedOk, failReasons;
     try{
       const fd=new FormData();
       fd.append('file',new Blob([cleanBaseSvg],{type:'image/svg+xml'}),fileName);
@@ -877,15 +877,23 @@ async function computeCleanPreview(){
       result=await res.text();
       const hdr=res.headers.get('X-Bridged-Indices')||'';
       bridgedOk=new Set(hdr.split(',').filter(Boolean).map(Number));
+      try{ failReasons=JSON.parse(res.headers.get('X-Bridge-Fail-Reasons')||'{}'); }catch{ failReasons={}; }
     }catch(e){
       if(myReq===cleanReqId) showErr(e.message);
       return;
     }
     if(myReq!==cleanReqId) return; // bu sırada daha yeni bir tıklama başladı — bu cevap eskidi, yok say
-    // Backend "köprüle" istenen ama geometrik olarak baglayamadigi (ada zaten ana govdeye
-    // cok yakin/cakisik, veya uygun bir baglanti noktasi bulunamadi) adalari sessizce atlar.
+    // Backend "köprüle" istenen ama geometrik olarak baglayamadigi adalari sessizce atlayabilir.
     // Boyle bir ada icin marker'i "koprule" gibi gosterip kullaniciyi yanitmak yerine,
-    // gercekte ne olduysa onu yansitacak sekilde "tut"a geri al ve haber ver.
+    // gercekte ne olduysa onu yansitacak sekilde "tut"a geri al ve GERCEK sebebi goster
+    // (genel/tahmini bir mesaj degil — backend'in raporladigi tam sebep koduna gore).
+    const REASON_TXT={
+      no_overlap:        'ada, izole render ile tam görüntü arasında eşleşmedi (konum/transform uyuşmazlığı olabilir)',
+      already_connected: 'piksel seviyesinde zaten ana gövdeye bağlı çıktı — aslında ayrı bir ada değil',
+      no_pairs:          'ana gövdeye en yakın nokta çifti bulunamadı',
+      segments_too_short:'bulunan bağlantı noktaları birbirine çok yakın (0.5px altı), köprü oluşmadı',
+      no_dark_pixels:     'bu seçimle birlikte görselde hiç koyu piksel kalmadı',
+    };
     const failed=brIdx.filter(i=>!bridgedOk.has(i));
     if(failed.length){
       failed.forEach(i=>{
@@ -894,7 +902,9 @@ async function computeCleanPreview(){
         if(mk){mk.dataset.s='keep';mk.querySelector('.mico').textContent=S_ICO.keep;}
         syncIslandRow(i);
       });
-      showErr(`Ada #${failed.map(i=>i+1).join(', #')} ana gövdeye çok yakın/örtüşük olduğu için köprülenemedi, "Tut" olarak bırakıldı.`);
+      console.warn('[köprü başarısız]', failed.map(i=>({idx:i+1,reason:failReasons[i]})));
+      const detail=failed.map(i=>`#${i+1}: ${REASON_TXT[failReasons[i]]||failReasons[i]||'bilinmeyen sebep'}`).join(' · ');
+      showErr(`Köprülenemedi — ${detail}. "Tut" olarak bırakıldı.`);
     }
   }
   workingSvg=result; lastSvg=result;
