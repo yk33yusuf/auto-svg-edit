@@ -152,7 +152,9 @@ button{font-family:inherit;cursor:pointer}
 .imark[data-s="delete"]{background:var(--danger)}
 .imark[data-s="bridge"]{background:var(--accent)}
 .imark[data-s="keep"]{background:var(--ok)}
-.imark .mnum{font-size:10px;font-weight:800;color:#fff;opacity:0;transition:opacity .1s;white-space:nowrap;line-height:1}
+.imark .mico{font-size:9px;font-weight:800;color:#fff;line-height:1}
+.imark:hover .mico{display:none}
+.imark .mnum{font-size:10px;font-weight:800;color:#fff;opacity:0;position:absolute;transition:opacity .1s;white-space:nowrap;line-height:1}
 .imark:hover .mnum{opacity:1}
 
 /* ── STATS ── */
@@ -258,7 +260,8 @@ button{font-family:inherit;cursor:pointer}
           <button class="bulk-btn br"  id="allBr">Köprüle</button>
           <button class="bulk-btn kp"  id="allKeep">Tut</button>
         </div>
-        <button class="btn-primary" id="applyBtn">Seçimi Uygula</button>
+        <div style="font-size:11px;color:var(--muted2);margin:8px 0">Her seçim anında canlı önizlemeye uygulanır — istediğin kadar değiştirebilirsin.</div>
+        <button class="btn-primary" id="applyBtn">Bitti — Listeyi Kapat</button>
       </div>
       <div class="btn-row" style="margin-top:10px">
         <button class="btn-icon ok" id="dl" disabled>↓ SVG</button>
@@ -448,7 +451,10 @@ let fileName    = 'design.svg';
 let lastSvg     = null;
 
 /* ── Ada temizle state ── */
-let islandStates = [], analyzedReport = null, cleanedBlobUrl = null;
+// cleanBaseSvg: Analiz Et'in çalıştığı andaki sabit referans SVG. Her önizleme bu
+// taban üzerinden yeniden hesaplanır, böylece seçim değiştirmek hiçbir zaman
+// birikmeli/bozucu olmaz — istediğin kadar geri/ileri dönebilirsin.
+let islandStates = [], analyzedReport = null, cleanedBlobUrl = null, cleanBaseSvg = null, cleanDeb = null;
 
 /* ── Compose state ── */
 let layers = [], selId = null, seq = 0, cDeb = null;
@@ -696,6 +702,7 @@ function initAllTools(text, name){
   $('markers').innerHTML = '';
   $('dl').disabled=true; $('png').disabled=true; $('cleanKaydet').disabled=true;
   islandStates=[]; analyzedReport=null;
+  clearTimeout(cleanDeb); cleanBaseSvg=null;
   if(cleanedBlobUrl){URL.revokeObjectURL(cleanedBlobUrl);cleanedBlobUrl=null;}
   $('islandCtrl').style.display='none';
   $('stats').style.display='none';
@@ -804,37 +811,63 @@ $('go').addEventListener('click',async()=>{
     const res=await fetch(`/analyze?dark_threshold=${$('dark').value}&scale=${$('scale').value}`,{method:'POST',body:fd});
     if(!res.ok)throw new Error((await res.json()).detail||'analiz hatası');
     const rep=await res.json();
+    // cleanBaseSvg = bu analizin dayandığı sabit taban. Aşağıdaki tüm önizlemeler
+    // hep BUNDAN yeniden hesaplanır — seçim değiştirmek hiç "geri al + tekrar analiz"
+    // gerektirmez, sadece anında yeniden hesaplanır.
+    cleanBaseSvg=workingSvg;
     analyzedReport=rep; islandStates=rep.removed.map(()=>'delete');
     showStats(rep); drawMarkers(rep);
     $('islandCtrl').style.display=rep.removed.length?'':'none';
     $('beforeTag').textContent=rep.removed_count+' ada';
     if(rep.removed.length===0){
-      // Already clean — enable downloads
       if(cleanedBlobUrl)URL.revokeObjectURL(cleanedBlobUrl);
       cleanedBlobUrl=URL.createObjectURL(new Blob([workingSvg],{type:'image/svg+xml'}));
       $('dl').disabled=false; $('png').disabled=false; $('cleanKaydet').disabled=false;
       $('afterTag').textContent='temiz ✓';
+    } else {
+      await computeCleanPreview();   // varsayılan seçimle (hepsi sil) ilk canlı önizleme
     }
   }catch(e){showErr(e.message);}
   finally{go.disabled=false;go.textContent='Analiz Et';}
 });
 
-$('allDel').addEventListener('click',  ()=>{islandStates=islandStates.map(()=>'delete'); refreshMarkers();});
-$('allBr').addEventListener('click',   ()=>{islandStates=islandStates.map(()=>'bridge'); refreshMarkers();});
-$('allKeep').addEventListener('click', ()=>{islandStates=islandStates.map(()=>'keep');   refreshMarkers();});
+$('allDel').addEventListener('click',  ()=>{islandStates=islandStates.map(()=>'delete'); refreshMarkers(); scheduleCleanPreview();});
+$('allBr').addEventListener('click',   ()=>{islandStates=islandStates.map(()=>'bridge'); refreshMarkers(); scheduleCleanPreview();});
+$('allKeep').addEventListener('click', ()=>{islandStates=islandStates.map(()=>'keep');   refreshMarkers(); scheduleCleanPreview();});
 
+// "Seçimi Uygula" artık ayrı/yıkıcı bir adım değil — her seçim değişikliği otomatik ve
+// anında uygulanır (bkz. scheduleCleanPreview). Buton sadece ada listesini kapatıp
+// bitirir; workingSvg zaten her zaman güncel haldedir.
 $('applyBtn').addEventListener('click',async()=>{
-  if(!workingSvg||!analyzedReport)return;
   const btn=$('applyBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>İşleniyor';
-  hideErr();
   try{
-    const delIdx=islandStates.map((s,i)=>s==='delete'?i:-1).filter(i=>i>=0);
-    const brIdx =islandStates.map((s,i)=>s==='bridge'?i:-1).filter(i=>i>=0);
-    let cleaned;
-    if(delIdx.length===0&&brIdx.length===0){ cleaned=workingSvg; }
-    else{
+    clearTimeout(cleanDeb);
+    await computeCleanPreview();   // bekleyen bir değişiklik varsa son haliyle uygula
+    $('markers').innerHTML=''; $('islandCtrl').style.display='none';
+    $('afterTag').textContent='uygulandı ✓';
+    analyzedReport=null; islandStates=[]; cleanBaseSvg=null;
+  }catch(e){showErr(e.message);}
+  finally{btn.disabled=false;btn.textContent='Bitti — Listeyi Kapat';}
+});
+
+function scheduleCleanPreview(){
+  clearTimeout(cleanDeb);
+  cleanDeb=setTimeout(computeCleanPreview,350);
+}
+
+// Her zaman cleanBaseSvg'den yeniden hesaplar (workingSvg'nin önceki halinden DEĞİL) —
+// böylece seçimler ileri-geri değiştirilse de hiçbir zaman birikip bozulmaz.
+async function computeCleanPreview(){
+  if(!analyzedReport||!cleanBaseSvg)return;
+  const delIdx=islandStates.map((s,i)=>s==='delete'?i:-1).filter(i=>i>=0);
+  const brIdx =islandStates.map((s,i)=>s==='bridge'?i:-1).filter(i=>i>=0);
+  let result;
+  try{
+    if(delIdx.length===0&&brIdx.length===0){
+      result=cleanBaseSvg;
+    }else{
       const fd=new FormData();
-      fd.append('file',new Blob([workingSvg],{type:'image/svg+xml'}),fileName);
+      fd.append('file',new Blob([cleanBaseSvg],{type:'image/svg+xml'}),fileName);
       fd.append('delete_indices',JSON.stringify(delIdx));
       fd.append('bridge_indices',JSON.stringify(brIdx));
       fd.append('dark_threshold',$('dark').value);
@@ -842,20 +875,16 @@ $('applyBtn').addEventListener('click',async()=>{
       fd.append('bridge_width',$('bw').value);
       const res=await fetch('/selective',{method:'POST',body:fd});
       if(!res.ok)throw new Error((await res.json()).detail||'işlem hatası');
-      cleaned=await res.text();
+      result=await res.text();
     }
-    // Commit to workingSvg
-    workingSvg=cleaned; lastSvg=cleaned;
-    updateRightCanvas();
-    $('markers').innerHTML=''; $('islandCtrl').style.display='none';
-    if(cleanedBlobUrl)URL.revokeObjectURL(cleanedBlobUrl);
-    cleanedBlobUrl=URL.createObjectURL(new Blob([cleaned],{type:'image/svg+xml'}));
-    $('dl').disabled=false; $('png').disabled=false; $('cleanKaydet').disabled=false;
-    $('afterTag').textContent='uygulandı ✓';
-    analyzedReport=null; islandStates=[];
-  }catch(e){showErr(e.message);}
-  finally{btn.disabled=false;btn.textContent='Seçimi Uygula';}
-});
+  }catch(e){ showErr(e.message); return; }
+  workingSvg=result; lastSvg=result;
+  updateRightCanvas();
+  if(cleanedBlobUrl)URL.revokeObjectURL(cleanedBlobUrl);
+  cleanedBlobUrl=URL.createObjectURL(new Blob([result],{type:'image/svg+xml'}));
+  $('dl').disabled=false; $('png').disabled=false; $('cleanKaydet').disabled=false;
+  $('afterTag').textContent='canlı önizleme';
+}
 
 function showStats(rep){
   $('stats').style.display='flex';
@@ -882,7 +911,7 @@ function drawMarkers(rep){
     const m=document.createElement('button');
     m.className='imark'; m.style.left=cx+'%'; m.style.top=cy+'%';
     m.dataset.idx=i; m.dataset.s=islandStates[i]||'delete';
-    m.innerHTML=`<span class="mnum">${i+1}</span>`;
+    m.innerHTML=`<span class="mico">${S_ICO[islandStates[i]||'delete']}</span><span class="mnum">${i+1}</span>`;
     m.title=`Ada #${i+1} · ${r.area_pt2}pt²`;
     m.addEventListener('click',e=>{
       e.stopPropagation();
@@ -891,6 +920,7 @@ function drawMarkers(rep){
       m.dataset.s=islandStates[i];
       m.querySelector('.mico').textContent=S_ICO[islandStates[i]];
       syncIslandRow(i);
+      scheduleCleanPreview();
     });
     layer.appendChild(m);
   });
@@ -929,6 +959,7 @@ function populateIslandRows(rep){
       stBtn.dataset.s=islandStates[i]; stBtn.textContent=S_LBL[islandStates[i]];
       const mk=$('markers').querySelector(`.imark[data-idx="${i}"]`);
       if(mk){mk.dataset.s=islandStates[i];mk.querySelector('.mico').textContent=S_ICO[islandStates[i]];}
+      scheduleCleanPreview();
     });
     row.appendChild(num); row.appendChild(info); row.appendChild(stBtn);
     list.appendChild(row);
