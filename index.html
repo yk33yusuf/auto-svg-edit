@@ -211,6 +211,7 @@ button{font-family:inherit;cursor:pointer}
   <div class="tb-file" id="fname">Dosya yüklenmedi</div>
   <div class="tb-right">
     <div class="tb-status"><div class="tb-sdot"></div>aktif</div>
+    <button id="syncBtn" class="btn-icon" title="Eşzamanlı zoom/pan" onclick="toggleSync()" style="font-size:13px;letter-spacing:-.5px">⇄ Sync</button>
     <button id="mundo" class="btn-icon" disabled title="Kırp/Genişlet/Daralt/şekil — son işlemi geri alır">↩ Geri al</button>
     <button id="kaydet">↑ Kaydet</button>
   </div>
@@ -232,37 +233,28 @@ button{font-family:inherit;cursor:pointer}
   <!-- ADA TEMİZLE -->
   <div class="sb-sec" id="sec-clean">
     <div class="sb-sec-head active open" onclick="toggleSec('clean')">
-      <div class="sh-left"><div class="sec-icon">◎</div>Ada Temizle</div>
+      <div class="sh-left"><div class="sec-icon">◎</div>Parça Birleştir</div>
       <span class="arr">▲</span>
     </div>
     <div class="sb-sec-body open">
       <div class="field">
-        <label>Koyu Eşiği <span class="val" id="dtVal">110</span></label>
-        <input type="range" id="dark" min="40" max="200" value="110">
+        <label>Köprü Kalınlığı <span class="val" id="bwVal">4</span></label>
+        <input type="range" id="bw" min="1" max="16" value="4" step="0.5">
       </div>
-      <div class="field">
-        <label>Köprü Kalınlığı (min) <span class="val" id="bwVal">2</span></label>
-        <input type="range" id="bw" min="0.5" max="12" value="2" step="0.5">
-      </div>
-      <div class="field"><label>Render Ölçek</label><input type="number" id="scale" value="2" min="1" max="4" step="0.5"></div>
-      <div class="field"><label>PNG Ölçek</label><input type="number" id="pngScale" value="3" min="1" max="6" step="0.5"></div>
-      <label class="chk-row"><input type="checkbox" id="trans" checked>Şeffaf zemin</label>
-      <button class="btn-primary" id="go" disabled>Analiz Et</button>
-      <div id="islandCtrl" style="display:none;margin-top:14px">
-        <div class="island-legend">
-          <div class="leg-chip del">✕ Sil</div>
-          <div class="leg-chip br">⟷ Köprüle</div>
-          <div class="leg-chip kp">✓ Tut</div>
+      <details style="margin-bottom:10px">
+        <summary style="font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;padding:4px 0;user-select:none">Gelişmiş Ayarlar</summary>
+        <div style="margin-top:8px">
+          <div class="field">
+            <label>Koyu Eşiği <span class="val" id="dtVal">110</span></label>
+            <input type="range" id="dark" min="40" max="200" value="110">
+          </div>
+          <div class="field"><label>Render Ölçek</label><input type="number" id="scale" value="2" min="1" max="4" step="0.5"></div>
+          <div class="field"><label>PNG Ölçek</label><input type="number" id="pngScale" value="3" min="1" max="6" step="0.5"></div>
+          <label class="chk-row"><input type="checkbox" id="trans" checked>Şeffaf zemin</label>
         </div>
-        <div class="island-list" id="islandRows"></div>
-        <div class="bulk-row">
-          <button class="bulk-btn del" id="allDel">Hepsini Sil</button>
-          <button class="bulk-btn br"  id="allBr">Köprüle</button>
-          <button class="bulk-btn kp"  id="allKeep">Tut</button>
-        </div>
-        <div style="font-size:11px;color:var(--muted2);margin:8px 0">Her seçim anında canlı önizlemeye uygulanır — istediğin kadar değiştirebilirsin.</div>
-        <button class="btn-primary" id="applyBtn">Bitti — Listeyi Kapat</button>
-      </div>
+      </details>
+      <button class="btn-primary" id="go" disabled>Tek Parça Yap</button>
+      <div id="islandCtrl" style="display:none"></div>
       <div class="btn-row" style="margin-top:10px">
         <button class="btn-icon ok" id="dl" disabled>↓ SVG</button>
         <button class="btn-icon ok" id="png" disabled>↓ PNG</button>
@@ -729,17 +721,33 @@ function initAllTools(text, name){
   updateRatioUI();
 }
 
+/* ── Eşzamanlı zoom/pan ── */
+let syncZoom = localStorage.getItem('zoomSync') !== 'false';
+function toggleSync(){
+  syncZoom=!syncZoom;
+  localStorage.setItem('zoomSync',syncZoom);
+  updateSyncBtn();
+}
+function updateSyncBtn(){
+  const btn=$('syncBtn');
+  if(!btn)return;
+  btn.style.color=syncZoom?'var(--accent)':'var(--muted)';
+  btn.style.borderColor=syncZoom?'rgba(240,120,32,.4)':'';
+  btn.title=syncZoom?'Eşzamanlı zoom/pan: AÇIK — tıkla kapatmak için':'Eşzamanlı zoom/pan: KAPALI — tıkla açmak için';
+}
+
 /* ── Scroll zoom + drag pan ── */
-function initScrollZoom(canvasEl, innerId, labelId){
+function initScrollZoom(canvasEl, innerId, labelId, onUpdate){
   const inner=$(innerId), label=labelId?$(labelId):null;
   if(!inner) return null;
   let zoom=1,tx=0,ty=0;
   let dragging=false,dsx=0,dsy=0,dtx=0,dty=0,hasDragged=false;
 
-  function apply(){
+  function apply(fromSync){
     if(label) label.textContent=Math.round(zoom*100)+'%';
     if(zoom===1){ inner.style.transform=''; inner.style.transformOrigin=''; canvasEl.style.cursor=''; }
     else{ inner.style.transform=`translate(${tx}px,${ty}px) scale(${zoom})`; inner.style.transformOrigin='0 0'; canvasEl.style.cursor=dragging?'grabbing':''; }
+    if(!fromSync && onUpdate) onUpdate(zoom,tx,ty);
   }
 
   canvasEl.addEventListener('wheel',e=>{
@@ -784,18 +792,22 @@ function initScrollZoom(canvasEl, innerId, labelId){
   });
 
   const ctrl={
-    in()   { zoom=Math.min(10,zoom*1.3); apply(); },
-    out()  { zoom=Math.max(1,zoom/1.3); if(zoom<=1.05){zoom=1;tx=0;ty=0;} apply(); },
-    reset(){ zoom=1;tx=0;ty=0;apply(); },
-    didDrag(){ const v=hasDragged; hasDragged=false; return v; }
+    in()        { zoom=Math.min(10,zoom*1.3); apply(); },
+    out()       { zoom=Math.max(1,zoom/1.3); if(zoom<=1.05){zoom=1;tx=0;ty=0;} apply(); },
+    reset()     { zoom=1;tx=0;ty=0;apply(); },
+    setFromSync(z,x,y){ zoom=z;tx=x;ty=y;apply(true); },
+    didDrag()   { const v=hasDragged; hasDragged=false; return v; }
   };
-  apply();
+  apply(true);
   return ctrl;
 }
 
 let beforeZoom, afterZoom;
-beforeZoom = initScrollZoom($('beforeCanvas'),'beforeInner','beforeZoomLabel');
-afterZoom  = initScrollZoom($('afterCanvas'), 'afterInner', 'afterZoomLabel');
+beforeZoom = initScrollZoom($('beforeCanvas'),'beforeInner','beforeZoomLabel',
+  (z,x,y)=>{ if(syncZoom&&afterZoom) afterZoom.setFromSync(z,x,y); });
+afterZoom  = initScrollZoom($('afterCanvas'), 'afterInner', 'afterZoomLabel',
+  (z,x,y)=>{ if(syncZoom&&beforeZoom) beforeZoom.setFromSync(z,x,y); });
+updateSyncBtn();
 
 /* ── Ada Temizle ── */
 $('dark').addEventListener('input',()=>$('dtVal').textContent=$('dark').value);
@@ -803,44 +815,25 @@ $('bw').addEventListener('input',()=>$('bwVal').textContent=$('bw').value);
 
 $('go').addEventListener('click',async()=>{
   if(!workingSvg)return;
-  const go=$('go'); go.disabled=true; go.innerHTML='<span class="spin"></span>Analiz';
+  const go=$('go'); go.disabled=true; go.innerHTML='<span class="spin"></span>İşleniyor';
   hideErr();
   try{
     const fd=new FormData();
     fd.append('file',new Blob([workingSvg],{type:'image/svg+xml'}),fileName);
-    const res=await fetch(`/analyze?dark_threshold=${$('dark').value}&scale=${$('scale').value}`,{method:'POST',body:fd});
-    if(!res.ok)throw new Error((await res.json()).detail||'analiz hatası');
-    const rep=await res.json();
-    // cleanBaseSvg = bu analizin dayandığı sabit taban. Aşağıdaki tüm önizlemeler
-    // hep BUNDAN yeniden hesaplanır — seçim değiştirmek hiç "geri al + tekrar analiz"
-    // gerektirmez, sadece anında yeniden hesaplanır.
-    cleanBaseSvg=workingSvg;
-    analyzedReport=rep; islandStates=rep.removed.map(()=>'delete');
-    showStats(rep); drawMarkers(rep);
-    $('islandCtrl').style.display=rep.removed.length?'':'none';
-    $('beforeTag').textContent=rep.removed_count+' ada';
-    if(rep.removed.length===0){
-      if(cleanedBlobUrl)URL.revokeObjectURL(cleanedBlobUrl);
-      cleanedBlobUrl=URL.createObjectURL(new Blob([workingSvg],{type:'image/svg+xml'}));
-      $('dl').disabled=false; $('png').disabled=false; $('cleanKaydet').disabled=false;
-      $('afterTag').textContent='temiz ✓';
-    } else {
-      await computeCleanPreview();   // varsayılan seçimle (hepsi sil) ilk canlı önizleme
-    }
+    const bw=$('bw').value, sc=$('scale').value, dt=$('dark').value;
+    const res=await fetch(`/bridge?dark_threshold=${dt}&scale=${sc}&bridge_width=${bw}&auto_width=true`,{method:'POST',body:fd});
+    if(!res.ok)throw new Error((await res.json()).detail||'köprüleme hatası');
+    const bridged=await res.text();
+    const bridgeCount=parseInt(res.headers.get('X-Bridge-Count')||'0');
+    const afterCount=parseInt(res.headers.get('X-Components-After')||'0');
+    workingSvg=bridged;
+    renderSvg('afterSvg',workingSvg);
+    lastSvg=workingSvg;
+    showBridgeStats(bridgeCount,afterCount);
+    $('dl').disabled=false; $('png').disabled=false; $('cleanKaydet').disabled=false;
+    $('afterTag').textContent=afterCount===1?'tek parça ✓':`${afterCount} parça ⚠`;
   }catch(e){showErr(e.message);}
-  finally{go.disabled=false;go.textContent='Analiz Et';}
-});
-
-$('allDel').addEventListener('click',  ()=>{islandStates=islandStates.map(()=>'delete'); refreshMarkers(); computeCleanPreview();});
-$('allBr').addEventListener('click',   ()=>{islandStates=islandStates.map(()=>'bridge'); refreshMarkers(); computeCleanPreview();});
-$('allKeep').addEventListener('click', ()=>{islandStates=islandStates.map(()=>'keep');   refreshMarkers(); computeCleanPreview();});
-
-// "Seçimi Uygula" artık ayrı/yıkıcı bir adım değil — her tek tıklama (Sil/Köprüle/Tut)
-// ANINDA uygulanır (bkz. computeCleanPreview, her çağrıda direkt çalışır — debounce yok).
-// Buton sadece ada listesini kapatıp bitirir; workingSvg zaten her zaman güncel haldedir.
-$('applyBtn').addEventListener('click',()=>{
-  $('markers').innerHTML=''; $('islandCtrl').style.display='none';
-  analyzedReport=null; islandStates=[]; cleanBaseSvg=null;
+  finally{go.disabled=false;go.textContent='Tek Parça Yap';}
 });
 
 // Sil/Tut: backend'e GİTMEDEN, tarayıcıda anında uygulanır (remove_str, /analyze
@@ -915,16 +908,13 @@ async function computeCleanPreview(){
   $('afterTag').textContent='canlı önizleme';
 }
 
-function showStats(rep){
+function showBridgeStats(bridgeCount,afterCount){
   $('stats').style.display='flex';
+  const ok=afterCount===1;
   $('stats').innerHTML=`
-    <div class="stat"><div class="n">${rep.components_before}</div><div class="l">Başlangıç</div></div>
-    <div class="stat danger"><div class="n">${rep.removed_count}</div><div class="l">Bulunan Ada</div></div>
-    <div class="stat ok"><div class="n">${rep.components_after||'—'}</div><div class="l">Kalan Parça</div></div>`;
-  if(rep.removed.length){
-    $('islandsBox').style.display='block';
-    $('ilist').innerHTML=rep.removed.map((r,i)=>`<div class="icard"><b>#${i+1}</b> · ${r.area_pt2}pt²<br>${r.w}×${r.h}</div>`).join('');
-  } else $('islandsBox').style.display='none';
+    <div class="stat ${ok?'ok':'danger'}"><div class="n">${afterCount}</div><div class="l">Kalan Parça ${ok?'✓':'⚠'}</div></div>
+    <div class="stat"><div class="n">${bridgeCount}</div><div class="l">Eklenen Köprü</div></div>`;
+  $('islandsBox').style.display='none';
 }
 
 const S_CYCLE=['delete','bridge','keep'];
@@ -1343,7 +1333,7 @@ async function mbAnalyze(){
   try{
     const svg=currentSvg();
     const fd=new FormData();fd.append('file',new Blob([svg],{type:'image/svg+xml'}),fileName);
-    const res=await fetch('/analyze?dark_threshold=110&scale=2',{method:'POST',body:fd});
+    const res=await fetch('/analyze?dark_threshold=110&scale=2&all_components=true',{method:'POST',body:fd});
     if(!res.ok)return;
     const rep=await res.json();
     drawBridgeIslands(rep.removed);

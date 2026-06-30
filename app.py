@@ -277,7 +277,7 @@ def render_to_gray(svg_text, w, h, scale):
 
 
 def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
-                            keep_larger_than=None, do_remove=True):
+                            keep_larger_than=None, do_remove=True, all_components=False):
     """
     Donen: (temizlenmis_svg, rapor_dict)
     rapor: components_before/after, removed_count, removed[ {x0,y0,x1,y1,w,h,area_pt2} ]
@@ -345,7 +345,7 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
             pmask = render_to_gray(single, W, H, scale) < dark_threshold
         except Exception:
             continue
-        if (pmask & main_dil).any():
+        if not all_components and (pmask & main_dil).any():
             continue  # ana govdeye degiyor -> KORU
         if not (pmask & island_mask).any():
             continue
@@ -970,11 +970,12 @@ async def analyze(request: Request,
                   file: UploadFile | None = File(default=None),
                   dark_threshold: float = Query(110.0),
                   scale: float = Query(2.0),
-                  keep_larger_than: float | None = Query(default=None)):
+                  keep_larger_than: float | None = Query(default=None),
+                  all_components: bool = Query(False)):
     svg = await read_svg(request, file)
     try:
         _, report = find_and_remove_islands(
-            svg, dark_threshold, scale, keep_larger_than, do_remove=False)
+            svg, dark_threshold, scale, keep_larger_than, do_remove=False, all_components=all_components)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return JSONResponse(report)
