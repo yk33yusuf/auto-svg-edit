@@ -253,8 +253,22 @@ button{font-family:inherit;cursor:pointer}
           <label class="chk-row"><input type="checkbox" id="trans" checked>Şeffaf zemin</label>
         </div>
       </details>
-      <button class="btn-primary" id="go" disabled>Tek Parça Yap</button>
-      <div id="islandCtrl" style="display:none"></div>
+      <div class="btn-row" style="margin-bottom:10px">
+        <button class="btn-icon" id="goAnalyze" disabled style="flex:1">Analiz Et</button>
+        <button class="btn-primary" id="go" disabled style="flex:1.4">Tek Parça Yap</button>
+      </div>
+      <div id="islandCtrl" style="display:none;margin-top:4px">
+        <div class="island-legend">
+          <div class="leg-chip br">⟷ Köprüle</div>
+          <div class="leg-chip del">✕ Sil</div>
+        </div>
+        <div class="island-list" id="islandRows"></div>
+        <div class="bulk-row">
+          <button class="bulk-btn br" id="allBr">Hepsini Köprüle</button>
+          <button class="bulk-btn del" id="allDel">Hepsini Sil</button>
+        </div>
+        <button class="btn-primary" id="applyBtn" style="width:100%;margin-top:8px">Uygula</button>
+      </div>
       <div class="btn-row" style="margin-top:10px">
         <button class="btn-icon ok" id="dl" disabled>↓ SVG</button>
         <button class="btn-icon ok" id="png" disabled>↓ PNG</button>
@@ -690,7 +704,7 @@ function initAllTools(text, name){
   $('empty-state').style.display = 'none';
 
   // Reset ada temizle
-  $('go').disabled = false; hideErr();
+  $('go').disabled = false; $('goAnalyze').disabled = false; hideErr();
   $('markers').innerHTML = '';
   $('dl').disabled=true; $('png').disabled=true; $('cleanKaydet').disabled=true;
   islandStates=[]; analyzedReport=null;
@@ -809,14 +823,46 @@ afterZoom  = initScrollZoom($('afterCanvas'), 'afterInner', 'afterZoomLabel',
   (z,x,y)=>{ if(syncZoom&&beforeZoom) beforeZoom.setFromSync(z,x,y); });
 updateSyncBtn();
 
-/* ── Ada Temizle ── */
+/* ── Parça Birleştir ── */
 $('dark').addEventListener('input',()=>$('dtVal').textContent=$('dark').value);
 $('bw').addEventListener('input',()=>$('bwVal').textContent=$('bw').value);
 
+// Büyük parça eşiği: bu pt²'nin üzerindekiler varsayılan köprüle, altındakiler sil
+const BIG_AREA = 500;
+
+/* Analiz Et — parçaları listele, seçim yap */
+$('goAnalyze').addEventListener('click',async()=>{
+  if(!workingSvg)return;
+  const btn=$('goAnalyze'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>';
+  hideErr(); $('islandCtrl').style.display='none';
+  try{
+    const fd=new FormData();
+    fd.append('file',new Blob([workingSvg],{type:'image/svg+xml'}),fileName);
+    const res=await fetch(`/analyze?dark_threshold=${$('dark').value}&scale=${$('scale').value}&all_components=true`,{method:'POST',body:fd});
+    if(!res.ok)throw new Error((await res.json()).detail||'analiz hatası');
+    const rep=await res.json();
+    cleanBaseSvg=workingSvg; analyzedReport=rep;
+    // Büyük parça → köprüle, küçük → sil
+    islandStates=rep.removed.map(r=>r.area_pt2>=BIG_AREA?'bridge':'delete');
+    showBridgeStats(0, rep.components_before);
+    $('beforeTag').textContent=rep.removed_count+' kopuk parça';
+    if(rep.removed.length){
+      populateIslandRows(rep);
+      $('islandCtrl').style.display='';
+      computeCleanPreview(); // başlangıç önizlemesi
+    } else {
+      $('afterTag').textContent='tek parça ✓';
+      $('dl').disabled=false; $('png').disabled=false; $('cleanKaydet').disabled=false;
+    }
+  }catch(e){showErr(e.message);}
+  finally{btn.disabled=false;btn.textContent='Analiz Et';}
+});
+
+/* Tek Parça Yap — hepsini köprüle (hızlı) */
 $('go').addEventListener('click',async()=>{
   if(!workingSvg)return;
   const go=$('go'); go.disabled=true; go.innerHTML='<span class="spin"></span>İşleniyor';
-  hideErr();
+  hideErr(); $('islandCtrl').style.display='none';
   try{
     const fd=new FormData();
     fd.append('file',new Blob([workingSvg],{type:'image/svg+xml'}),fileName);
@@ -826,14 +872,21 @@ $('go').addEventListener('click',async()=>{
     const bridged=await res.text();
     const bridgeCount=parseInt(res.headers.get('X-Bridge-Count')||'0');
     const afterCount=parseInt(res.headers.get('X-Components-After')||'0');
-    workingSvg=bridged;
-    renderSvg('afterSvg',workingSvg);
-    lastSvg=workingSvg;
+    workingSvg=bridged; analyzedReport=null; islandStates=[];
+    renderSvg('afterSvg',workingSvg); lastSvg=workingSvg;
     showBridgeStats(bridgeCount,afterCount);
     $('dl').disabled=false; $('png').disabled=false; $('cleanKaydet').disabled=false;
     $('afterTag').textContent=afterCount===1?'tek parça ✓':`${afterCount} parça ⚠`;
   }catch(e){showErr(e.message);}
   finally{go.disabled=false;go.textContent='Tek Parça Yap';}
+});
+
+$('allBr').addEventListener('click',()=>{islandStates=islandStates.map(()=>'bridge');if(analyzedReport)populateIslandRows(analyzedReport);computeCleanPreview();});
+$('allDel').addEventListener('click',()=>{islandStates=islandStates.map(()=>'delete');if(analyzedReport)populateIslandRows(analyzedReport);computeCleanPreview();});
+$('applyBtn').addEventListener('click',()=>{
+  $('islandCtrl').style.display='none';
+  analyzedReport=null; cleanBaseSvg=null; islandStates=[];
+  $('afterTag').textContent=workingSvg?'düzenlendi ✓':'düzenleniyor';
 });
 
 // Sil/Tut: backend'e GİTMEDEN, tarayıcıda anında uygulanır (remove_str, /analyze
