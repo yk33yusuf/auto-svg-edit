@@ -1333,7 +1333,7 @@ async function mbAnalyze(){
   try{
     const svg=currentSvg();
     const fd=new FormData();fd.append('file',new Blob([svg],{type:'image/svg+xml'}),fileName);
-    const res=await fetch('/analyze?dark_threshold=110&scale=2&all_components=true',{method:'POST',body:fd});
+    const res=await fetch('/analyze?dark_threshold=110&scale=2',{method:'POST',body:fd});
     if(!res.ok)return;
     const rep=await res.json();
     drawBridgeIslands(rep.removed);
