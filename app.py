@@ -1047,6 +1047,50 @@ async def bbox_endpoint(request: Request,
     return JSONResponse(box)
 
 
+def set_svg_viewbox(svg, box):
+    """Kok <svg> etiketinin viewBox/width/height degerlerini verilen kutuya gore yeniden yazar
+    (index.html'deki setSvgViewBox ile ayni mantik)."""
+    m = re.search(r"<svg\b[^>]*>", svg, re.IGNORECASE)
+    if not m:
+        return svg
+    tag = m.group(0)
+    vb_str = f'viewBox="{box["x"]:g} {box["y"]:g} {box["w"]:g} {box["h"]:g}"'
+    if re.search(r'viewBox="[^"]*"', tag, re.IGNORECASE):
+        tag = re.sub(r'viewBox="[^"]*"', vb_str, tag, count=1, flags=re.IGNORECASE)
+    else:
+        tag = re.sub(r"<svg", f"<svg {vb_str}", tag, count=1, flags=re.IGNORECASE)
+    if re.search(r'\swidth="[^"]*"', tag, re.IGNORECASE):
+        tag = re.sub(r'\swidth="[^"]*"', f' width="{box["w"]:g}"', tag, count=1, flags=re.IGNORECASE)
+    else:
+        tag = re.sub(r"<svg([^>]*)>", f'<svg\\1 width="{box["w"]:g}">', tag, count=1, flags=re.IGNORECASE)
+    if re.search(r'\sheight="[^"]*"', tag, re.IGNORECASE):
+        tag = re.sub(r'\sheight="[^"]*"', f' height="{box["h"]:g}"', tag, count=1, flags=re.IGNORECASE)
+    else:
+        tag = re.sub(r"<svg([^>]*)>", f'<svg\\1 height="{box["h"]:g}">', tag, count=1, flags=re.IGNORECASE)
+    return svg[:m.start()] + tag + svg[m.end():]
+
+
+@app.post("/trim_svg")
+async def trim_svg(request: Request,
+                   file: UploadFile | None = File(default=None),
+                   threshold: float = Query(10.0, description="0-255 bos kenar toleransi"),
+                   scale: float = Query(2.0, description="render hassasiyeti"),
+                   padding: float = Query(0.0, description="kirptiktan sonra birakilacak bosluk (svg birimi)")):
+    """SVG'nin bos kenarlarini viewBox'i daraltarak kirpar -> SVG dondurur."""
+    svg = await read_svg(request, file)
+    try:
+        box = svg_content_bbox(svg, threshold, scale)
+        if padding > 0:
+            box = {"x": box["x"] - padding, "y": box["y"] - padding,
+                   "w": box["w"] + 2 * padding, "h": box["h"] + 2 * padding}
+        trimmed = set_svg_viewbox(svg, box)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except Exception as e:
+        raise HTTPException(422, f"trim_svg hatasi: {e}")
+    return Response(content=trimmed, media_type="image/svg+xml")
+
+
 @app.post("/svg2png")
 async def svg2png(request: Request,
                   file: UploadFile | None = File(default=None),
