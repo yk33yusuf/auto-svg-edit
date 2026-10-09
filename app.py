@@ -28,8 +28,11 @@ import json
 import math
 import os
 import re
+import threading
+import time
 
 import numpy as np
+from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -41,6 +44,45 @@ from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
 
 app = FastAPI(title="auto-svg-clean", version="1.0.0")
+
+
+# ── ZAMAN SINIRI + THREAD'E ALMA (2026-10-09) ──────────────────────────────────
+# Ada temizleme/koprulemede her path/ada icin TAM KARE render + mesafe donusumu yapilir
+# (karmasik stencil tasarimda binlerce kez) → sinirsiz sure CPU. Eski hali bunu `async def`
+# icinde dogrudan olay dongusunde calistiriyordu: istemci baglantiyi kapatsa bile hesap
+# surer, /health dahil HICBIR istek cevap vermez, bir cekirdek saatlerce %100 kalir
+# (canli vaka: konteyner 4 saat %100-150, yeniden baslatinca %0.15). Simdi ag is thread'e
+# alinir + dongulerde isbirlikci zaman kontrolu yapilir.
+SVG_MAX_SECONDS = float(os.environ.get("SVG_MAX_SECONDS", "90"))
+_deadline_local = threading.local()
+
+
+class SvgTimeout(Exception):
+    pass
+
+
+def _check_deadline():
+    t = getattr(_deadline_local, "t", None)
+    if t is not None and time.monotonic() > t:
+        raise SvgTimeout(f"SVG isleme {SVG_MAX_SECONDS:.0f} sn sinirini asti (cok karmasik tasarim)")
+
+
+async def _run_bounded(fn, *args, **kwargs):
+    """Agir numpy/render isini thread'de, zaman sinirli calistir (olay dongusunu bloklamaz)."""
+    def _job():
+        _deadline_local.t = time.monotonic() + SVG_MAX_SECONDS
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _deadline_local.t = None
+    return await run_in_threadpool(_job)
+
+
+@app.exception_handler(SvgTimeout)
+async def _svg_timeout_handler(request, exc):
+    return JSONResponse({"detail": str(exc)}, status_code=422)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -340,6 +382,7 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
     removed = []
     cleaned = content
     for remove_str, render_frag in dark_items:
+        _check_deadline()
         single = f'{header}{render_frag}</svg>'
         try:
             pmask = render_to_gray(single, W, H, scale) < dark_threshold
@@ -739,9 +782,11 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
     svg_bridges, seg_report = [], []
 
     while remaining:
+        _check_deadline()
         edt, edt_inds = ndimage.distance_transform_edt(~rest, return_indices=True)
         best_l, best_d = None, np.inf
         for l in remaining:
+            _check_deadline()
             ys, xs = np.where(labels == l)
             d = edt[ys, xs].min()
             if d < best_d:
@@ -974,7 +1019,8 @@ async def analyze(request: Request,
                   all_components: bool = Query(False)):
     svg = await read_svg(request, file)
     try:
-        _, report = find_and_remove_islands(
+        _, report = await _run_bounded(
+            find_and_remove_islands,
             svg, dark_threshold, scale, keep_larger_than, do_remove=False, all_components=all_components)
     except ValueError as e:
         raise HTTPException(422, str(e))
@@ -989,7 +1035,8 @@ async def clean(request: Request,
                 keep_larger_than: float | None = Query(default=None)):
     svg = await read_svg(request, file)
     try:
-        cleaned, report = find_and_remove_islands(
+        cleaned, report = await _run_bounded(
+            find_and_remove_islands,
             svg, dark_threshold, scale, keep_larger_than, do_remove=True)
     except ValueError as e:
         raise HTTPException(422, str(e))
@@ -1016,7 +1063,8 @@ async def bridge(request: Request,
     """Adalari silmez; en yakin noktadan ana govdeye baglar -> TEK PARCA SVG dondurur."""
     svg = await read_svg(request, file)
     try:
-        bridged, report = find_and_bridge_islands(
+        bridged, report = await _run_bounded(
+            find_and_bridge_islands,
             svg, dark_threshold, scale, bridge_width, color,
             auto_multi, bridges_per, max_bridges)
     except ValueError as e:
@@ -1184,7 +1232,7 @@ async def compose_endpoint(
         tsvg = stencil_text_svg(text, font, size, letter_spacing, mode, color, pad, radius, curve, float(width), vscale)
         merged = compose_text(base, tsvg, cx, cy, width, rotate)
         if bridge:
-            merged, _ = find_and_bridge_islands(merged, dark_threshold, scale, bridge_width, color)
+            merged, _ = await _run_bounded(find_and_bridge_islands, merged, dark_threshold, scale, bridge_width, color)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return Response(content=merged, media_type="image/svg+xml")
@@ -1253,6 +1301,7 @@ async def selective_endpoint(
     # Adaları bul (y0'a göre sıralı → analyze ile aynı sıra)
     island_list = []
     for remove_str, render_frag in dark_items:
+        _check_deadline()
         single = f'{header}{render_frag}</svg>'
         try:
             pmask = render_to_gray(single, W, H, scale) < dark_threshold
@@ -1381,7 +1430,7 @@ async def compose_multi(
             merged = compose_text(merged, tsvg, float(it["cx"]), float(it["cy"]),
                                   float(it["width"]), float(it.get("rotate", 0)))
         if bridge:
-            merged, _ = find_and_bridge_islands(merged, dark_threshold, scale, bridge_width)
+            merged, _ = await _run_bounded(find_and_bridge_islands, merged, dark_threshold, scale, bridge_width)
     except (KeyError, ValueError) as e:
         raise HTTPException(422, f"yerlestirme hatasi: {e}")
     return Response(content=merged, media_type="image/svg+xml")
