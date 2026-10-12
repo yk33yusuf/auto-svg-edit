@@ -485,14 +485,14 @@ def _axis_bridge_candidates(island_mask, main_mask):
     return cands
 
 
-def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=8.0, vbx=0.0, vby=0.0):
+def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=6.0, vbx=0.0, vby=0.0):
     """Kopruyu temiz SVG elemanina donustur. H/V icin <rect>, capraz icin <line>.
-    Köprü her iki tarafa da bw/2 kadar taşar (overlap) ve köşeler yumuşatılır.
-    vbx/vby: viewBox min-x/min-y — piksel->SVG-birimi donusumunde eklenmezse,
-    viewBox sifirdan baslamayan tasarımlarda köprü origin kadar kayar (görünmez olur)."""
+    Köprü her iki tarafa da kontrollü ovlp kadar taşar (overlap) ve köşeler yumuşatılır.
+    Lazer kesim güvenliği için bw en fazla 4.0 birimle sınırlandırılır."""
+    bw = min(float(bw), 4.0)
     sx1, sy1, sx2, sy2 = vbx+x1/scale, vby+y1/scale, vbx+x2/scale, vby+y2/scale
-    ovlp = bw * 1.5  # her iki tarafa taşacak miktar (svg birimi)
-    rx = min(bw * 0.45, 5.0)  # köşe yumuşatma yarıçapı
+    ovlp = min(bw * 0.4, 1.5)  # her iki tarafa taşacak makul miktar (svg birimi, eskiden 1.5*bw devasa blok yapıyordu)
+    rx = min(bw * 0.45, 1.5)   # köşe yumuşatma yarıçapı
     if direction == 'H':
         length = abs(sx2 - sx1)
         if length < min_svg:
@@ -574,15 +574,15 @@ def _island_orient_and_width(isl_mask, scale):
 
     if angle < 30:
         orient     = 'H'
-        stroke_px  = h_px   # yatay çizgi → dikey kalınlığı köprüle
+        stroke_px  = min(h_px, 6.0 * scale)
     elif angle > 60:
         orient     = 'V'
-        stroke_px  = w_px   # dikey çizgi → yatay kalınlığı köprüle
+        stroke_px  = min(w_px, 6.0 * scale)
     else:
         orient     = 'D'
-        stroke_px  = min(w_px, h_px)
+        stroke_px  = min(w_px, h_px, 6.0 * scale)
 
-    return orient, max(1.5, stroke_px / scale)
+    return orient, min(max(2.0, stroke_px / scale), 3.5)
 
 
 def _orient_pool(axis_cands, orient):
@@ -757,9 +757,9 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
 
 
 def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
-                            bridge_width=2.0, color="#000000",
+                            bridge_width=2.5, color="#000000",
                             auto_multi=True, bridges_per=150.0, max_bridges=6,
-                            min_bridge_svg=10.0, auto_width=True):
+                            min_bridge_svg=6.0, auto_width=True):
     """
     Yuzen adalari eksen-hizali koprulerle ana govdeye baglar.
     auto_width=True (varsayılan): köprü kalınlığı adanın kendi darbe genişliğinden
@@ -800,8 +800,8 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
 
         # ── Yön tespiti + kalınlık ──
         isl_orient, auto_bw = _island_orient_and_width(isl, scale)
-        # bridge_width minimum garanti; auto tespit büyükse onu kullan
-        bw = max(auto_bw, bridge_width) if auto_width else bridge_width
+        # bridge_width minimum garanti; lazer kesim için 3.5'i asla geçme
+        bw = min(max(auto_bw, bridge_width), 3.5) if auto_width else min(bridge_width, 4.0)
 
         # ── Aday köprüler ──
         axis_cands = _axis_bridge_candidates(isl, rest)
@@ -1055,7 +1055,7 @@ async def bridge(request: Request,
                  file: UploadFile | None = File(default=None),
                  dark_threshold: float = Query(110.0),
                  scale: float = Query(2.0),
-                 bridge_width: float = Query(2.0, description="kopru kalinligi (svg birimi)"),
+                 bridge_width: float = Query(2.5, description="kopru kalinligi (svg birimi)"),
                  color: str = Query("#000000", description="kopru rengi"),
                  auto_multi: bool = Query(True, description="buyuk adalara coklu kopru"),
                  bridges_per: float = Query(150.0, description="her ~N svg-birimi acikliga 1 kopru"),
