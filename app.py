@@ -243,6 +243,34 @@ def hex_luminance(hexstr):
     return 0.299 * r + 0.587 * g + 0.114 * b
 
 
+def strip_light_paths(content, dark_threshold=110.0):
+    """
+    VectorMagic SVG ciktisindaki acik renkli (krem #fff4de / #fef0d4 veya beyaz #ffffff)
+    arka plan ve ic delik <path> katmanlarini siler; koyu (metal) <path> katmanlarinin
+    rengini saf #000000 olarak normallestirir. Boylece SVG sadece tek katmanli
+    lazer kesim metal yollarini icerir ve ic bosluklar %100 seffaf kalir.
+    """
+    def _repl(match):
+        ptag = match.group(0)
+        fm = re.search(r'fill="([^"]+)"', ptag, re.IGNORECASE)
+        if not fm:
+            return ptag
+        fill_val = fm.group(1).strip().lower()
+        if fill_val in ("none", "transparent"):
+            return ""
+        lum = hex_luminance(fill_val)
+        if lum is None:
+            return ptag
+        if lum > dark_threshold:
+            return ""
+        if fill_val != "#000000":
+            ptag = re.sub(r'fill="[^"]+"', 'fill="#000000"', ptag, count=1, flags=re.IGNORECASE)
+        return ptag
+
+    return re.sub(r"<path\b[^>]*?/>", _repl, content, flags=re.IGNORECASE)
+
+
+
 def extract_svg_header(content):
     m = re.search(r"<svg\b[^>]*>", content, re.IGNORECASE)
     if not m:
@@ -324,6 +352,8 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
     Donen: (temizlenmis_svg, rapor_dict)
     rapor: components_before/after, removed_count, removed[ {x0,y0,x1,y1,w,h,area_pt2} ]
     """
+    if do_remove:
+        content = strip_light_paths(content, dark_threshold)
     header, W, H = extract_svg_header(content)
     # viewBox min-x/min-y sifir olmayabilir (ozellikle bu editorde otomatik "kenar
     # bosluğunu kirp" calistiktan sonra HEMEN HEMEN HER ZAMAN sifir degildir). Asagidaki
@@ -432,11 +462,16 @@ def find_and_remove_islands(content, dark_threshold=110.0, scale=2.0,
 # --------------------------------------------------------------------------- #
 # KOPRULEME: adalari silmek yerine en yakin noktadan ana govdeye bagla
 # --------------------------------------------------------------------------- #
-def _stamp_line(mask, x0, y0, x1, y1):
+def _stamp_line(mask, x0, y0, x1, y1, radius_px=2):
     n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
     xs = np.clip(np.linspace(x0, x1, n).round().astype(int), 0, mask.shape[1] - 1)
     ys = np.clip(np.linspace(y0, y1, n).round().astype(int), 0, mask.shape[0] - 1)
-    mask[ys, xs] = True
+    r = max(1, int(round(radius_px)))
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            ny = np.clip(ys + dy, 0, mask.shape[0] - 1)
+            nx = np.clip(xs + dx, 0, mask.shape[1] - 1)
+            mask[ny, nx] = True
 
 
 def _axis_bridge_candidates(island_mask, main_mask):
@@ -485,14 +520,14 @@ def _axis_bridge_candidates(island_mask, main_mask):
     return cands
 
 
-def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=6.0, vbx=0.0, vby=0.0):
+def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=8.0, vbx=0.0, vby=0.0):
     """Kopruyu temiz SVG elemanina donustur. H/V icin <rect>, capraz icin <line>.
-    Köprü her iki tarafa da kontrollü ovlp kadar taşar (overlap) ve köşeler yumuşatılır.
-    Lazer kesim güvenliği için bw en fazla 4.0 birimle sınırlandırılır."""
-    bw = min(float(bw), 4.0)
+    Köprü her iki tarafa da güçlü ovlp kadar taşar (overlap) ki eğimli kenarlarda
+    kılcal kopukluk kalmasın. Lazer kesim mukavemeti için bw 16.0 birime kadar desteklenir."""
+    bw = min(max(float(bw), 2.5), 16.0)
     sx1, sy1, sx2, sy2 = vbx+x1/scale, vby+y1/scale, vbx+x2/scale, vby+y2/scale
-    ovlp = min(bw * 0.4, 1.5)  # her iki tarafa taşacak makul miktar (svg birimi, eskiden 1.5*bw devasa blok yapıyordu)
-    rx = min(bw * 0.45, 1.5)   # köşe yumuşatma yarıçapı
+    ovlp = min(max(bw * 0.85, 3.5), 10.0)  # her iki tarafa derin ankraj
+    rx = min(bw * 0.35, 2.5)
     if direction == 'H':
         length = abs(sx2 - sx1)
         if length < min_svg:
@@ -518,7 +553,7 @@ def _bridge_svg_elem(x1, y1, x2, y2, direction, bw, color, scale, min_svg=6.0, v
             mx, my = (sx1+sx2)/2, (sy1+sy2)/2
             sx1,sy1 = mx-dx*min_svg/2, my-dy*min_svg/2
             sx2,sy2 = mx+dx*min_svg/2, my+dy*min_svg/2
-        # Diyagonal: round linecap + her iki uca overlap
+        # Diyagonal: round linecap + her iki uca derin overlap
         if length > 0:
             dx, dy = (sx2-sx1)/length, (sy2-sy1)/length
             sx1 -= dx * ovlp; sy1 -= dy * ovlp
@@ -539,7 +574,7 @@ def _island_orient_and_width(isl_mask, scale):
     """
     ys, xs = np.where(isl_mask)
     if len(xs) == 0:
-        return 'H', 2.0
+        return 'H', 6.0
 
     w_px = int(xs.max() - xs.min())
     h_px = int(ys.max() - ys.min())
@@ -574,15 +609,15 @@ def _island_orient_and_width(isl_mask, scale):
 
     if angle < 30:
         orient     = 'H'
-        stroke_px  = min(h_px, 6.0 * scale)
+        stroke_px  = min(h_px, 12.0 * scale)
     elif angle > 60:
         orient     = 'V'
-        stroke_px  = min(w_px, 6.0 * scale)
+        stroke_px  = min(w_px, 12.0 * scale)
     else:
         orient     = 'D'
-        stroke_px  = min(w_px, h_px, 6.0 * scale)
+        stroke_px  = min(w_px, h_px, 12.0 * scale)
 
-    return orient, min(max(2.0, stroke_px / scale), 3.5)
+    return orient, min(max(4.5, stroke_px / scale), 10.0)
 
 
 def _orient_pool(axis_cands, orient):
@@ -757,14 +792,16 @@ def _span_bridge(edt_black, ix, iy, rx, ry, scale, color="#000000",
 
 
 def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
-                            bridge_width=2.5, color="#000000",
-                            auto_multi=True, bridges_per=150.0, max_bridges=6,
-                            min_bridge_svg=6.0, auto_width=True):
+                            bridge_width=7.5, color="#000000",
+                            auto_multi=True, bridges_per=80.0, max_bridges=6,
+                            min_bridge_svg=8.0, auto_width=True):
     """
-    Yuzen adalari eksen-hizali koprulerle ana govdeye baglar.
-    auto_width=True (varsayılan): köprü kalınlığı adanın kendi darbe genişliğinden
-    otomatik hesaplanır; yön de adanın PCA eksenine göre seçilir.
+    Yuzen adalari eksen-hizali veya en kisa diyagonal koprulerle ana govdeye baglar.
+    Acik renkli (krem/beyaz) arka plan path'lerini otomatik siler.
+    Orta/buyuk adalara tek noktadan sallanip kirilmamasi icin en az 2-3 ayri noktadan
+    kalin yapisal metal kopru atar.
     """
+    content = strip_light_paths(content, dark_threshold)
     header, W, H = extract_svg_header(content)
     vbx, vby = extract_viewbox_origin(content)
     gray = render_to_gray(content, W, H, scale)
@@ -796,16 +833,29 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
 
         ys, xs = np.where(isl)
         span_svg = max(xs.max()-xs.min(), ys.max()-ys.min()) / scale
-        n_br = int(np.clip(round(span_svg/bridges_per), 1, max_bridges)) if auto_multi else 1
+        area_svg = float(isl.sum()) / (scale * scale)
+        if auto_multi:
+            base_br = int(np.clip(round(span_svg / max(bridges_per, 20.0)), 1, max_bridges))
+            if area_svg >= 2200.0 or span_svg >= 140.0:
+                min_br = 3
+            elif area_svg >= 250.0 or span_svg >= 45.0:
+                min_br = 2
+            else:
+                min_br = 1
+            n_br = min(max(base_br, min_br), max_bridges)
+        else:
+            n_br = 1
 
         # ── Yön tespiti + kalınlık ──
         isl_orient, auto_bw = _island_orient_and_width(isl, scale)
-        # bridge_width minimum garanti; lazer kesim için 3.5'i asla geçme
-        bw = min(max(auto_bw, bridge_width), 3.5) if auto_width else min(bridge_width, 4.0)
+        max_bw = max(float(bridge_width) * 1.35, 12.0)
+        bw = min(max(auto_bw, float(bridge_width)), max_bw) if auto_width else min(float(bridge_width), 16.0)
 
         # ── Aday köprüler ──
         axis_cands = _axis_bridge_candidates(isl, rest)
-        pool = _orient_pool(axis_cands, isl_orient)   # yöne göre önceliklendir
+        max_axis_gap = max(float(best_d) * 1.65, float(best_d) + 16.0 * scale)
+        near_axis_cands = [c for c in axis_cands if c[0] <= max_axis_gap]
+        pool = _orient_pool(near_axis_cands, isl_orient)
 
         edge = isl & ~ndimage.binary_erosion(isl)
         if not edge.any(): edge = isl
@@ -813,16 +863,16 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
         d_vals = edt[ey, ex]
         ord_ = np.argsort(d_vals)
         diag_cands = []
-        for idx in ord_[:min(300, len(ord_))]:
+        for idx in ord_[:min(400, len(ord_))]:
             px, py = int(ex[idx]), int(ey[idx])
             tx, ty = int(edt_inds[1][py,px]), int(edt_inds[0][py,px])
             diag_cands.append((int(d_vals[idx]), px, py, tx, ty, 'D'))
 
         fallback = diag_cands
 
-        min_gap_px = max(span_svg * scale / (n_br + 1), 15)
+        min_gap_px = max(span_svg * scale / (n_br + 1.2), 14.0)
         chosen = []
-        for src in [pool, fallback]:
+        for src in [pool, fallback, axis_cands]:
             for c in src:
                 px, py = c[1], c[2]
                 if all((px-cx)**2+(py-cy)**2 >= min_gap_px**2 for cx,cy,*_ in chosen):
@@ -832,10 +882,11 @@ def find_and_bridge_islands(content, dark_threshold=110.0, scale=2.0,
             if len(chosen) >= n_br:
                 break
 
+        stamp_r = max(2, int(round((bw * scale) * 0.45)))
         for c in chosen:
             gap_px, x1c, y1c, x2c, y2c, d = c
             svg_bridges.append(_bridge_svg_elem(x1c,y1c,x2c,y2c,d,bw,color,scale,min_bridge_svg,vbx,vby))
-            _stamp_line(rest, x1c, y1c, x2c, y2c)
+            _stamp_line(rest, x1c, y1c, x2c, y2c, radius_px=stamp_r)
             seg_report.append({"x1":round(x1c/scale,1),"y1":round(y1c/scale,1),
                                 "x2":round(x2c/scale,1),"y2":round(y2c/scale,1),
                                 "dir":d,"gap_svg":round(gap_px/scale,1),
@@ -886,6 +937,8 @@ def render_svg_to_png(svg_text, scale=2.0, width=None, height=None,
       - trim=True -> render sonrasi bos kenari kirp.
     Donen: PNG bytes.
     """
+    if not bg:
+        svg_text = strip_light_paths(svg_text)
     kwargs = {}
     if width:
         kwargs["output_width"] = int(float(width))
@@ -1055,10 +1108,10 @@ async def bridge(request: Request,
                  file: UploadFile | None = File(default=None),
                  dark_threshold: float = Query(110.0),
                  scale: float = Query(2.0),
-                 bridge_width: float = Query(2.5, description="kopru kalinligi (svg birimi)"),
+                 bridge_width: float = Query(7.5, description="kopru kalinligi (svg birimi)"),
                  color: str = Query("#000000", description="kopru rengi"),
                  auto_multi: bool = Query(True, description="buyuk adalara coklu kopru"),
-                 bridges_per: float = Query(150.0, description="her ~N svg-birimi acikliga 1 kopru"),
+                 bridges_per: float = Query(80.0, description="her ~N svg-birimi acikliga 1 kopru"),
                  max_bridges: int = Query(6, description="ada basina kopru ust siniri")):
     """Adalari silmez; en yakin noktadan ana govdeye baglar -> TEK PARCA SVG dondurur."""
     svg = await read_svg(request, file)
@@ -1127,6 +1180,7 @@ async def trim_svg(request: Request,
     """SVG'nin bos kenarlarini viewBox'i daraltarak kirpar -> SVG dondurur."""
     svg = await read_svg(request, file)
     try:
+        svg = strip_light_paths(svg)
         box = svg_content_bbox(svg, threshold, scale)
         if padding > 0:
             box = {"x": box["x"] - padding, "y": box["y"] - padding,
